@@ -15,6 +15,7 @@ ZA = os.path.join(ROOT, "src/zanat/Z-Anatomy/Startup.blend")
 OUT = os.path.join(ROOT, "out", "")
 W = np.load(OUT + "warp.npz", allow_pickle=True)
 pts, ids, mats = W["pts"], W["ids"], W["mats"]
+disp = W["disp"] if "disp" in W.files else np.zeros_like(pts)
 kd = kdtree.KDTree(len(pts))
 for i, p in enumerate(pts): kd.insert(Vector(p), i)
 kd.balance()
@@ -62,7 +63,7 @@ for ob in objs:
         acc = Vector((0, 0, 0)); ws = 0.0
         for (_, idx, d) in nb:
             w = 1.0 / (d * d + 1e-5)
-            acc += (mats4[ids[idx]] @ p) * w; ws += w
+            acc += (mats4[ids[idx]] @ p + Vector(disp[idx])) * w; ws += w
         q = acc / ws
         loc, nrm, _, dist = skin.find_nearest(q)
         if loc is not None and (q - loc).dot(nrm) > -0.002:

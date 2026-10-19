@@ -82,7 +82,7 @@ export class HumanBody extends EventTarget {
       o.userData.part = name; o.userData.layerName = layer; o.frustumCulled = false;
       this.layerMeshes[layer].push(o); this.parts.set(name, o);
       if (layer === "skin" && o.name === "Body") this._skinMaterial(o);
-      else if (layer === "skeleton") o.material = this._mat(o.material, { roughness: .62 });
+      else if (layer === "skeleton") { o.material = this._mat(o.material, { roughness: .62 }); if (/ligament/i.test(name)) o.userData.alphaK = .45; }   /* ligaments: see the vertebrae through them */
       else if (layer === "muscles") o.material = this._mat(o.material, { roughness: .42, color: 0x9c2b22 });
       o.userData.baseMat = o.material;
     });
@@ -112,7 +112,7 @@ export class HumanBody extends EventTarget {
     for (const l of LAYERS) for (const m of this.layerMeshes[l]) {
       m.visible = this.layerOn[l] && !m.userData.hidden;
       if (this.hl && this.hl.has(m)) { m.renderOrder = 20; continue; }
-      const a = this.opacity[l] == null ? 1 : this.opacity[l], mat = m.material;
+      const a = (this.opacity[l] == null ? 1 : this.opacity[l]) * (m.userData.alphaK || 1), mat = m.material;
       const tr = a < .999; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6; m.renderOrder = { skeleton: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
     }
     for (const n of ["Eyes", "Eyebrows", "Eyelashes", "Teeth", "Tongue"]) { const m = this.parts.get(n); if (m) m.visible = this.layerOn.skin && this.opacity.skin > .5; }

@@ -10,8 +10,11 @@ blender -b out/body.blend --python tools/build_skeleton.py"""
 import bpy, re, json, math
 import numpy as np
 from mathutils import Vector, Matrix
-import os
+import os, sys
 ROOT = os.environ.get("HB_ROOT", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import female_fit as FF
+FEMALE = os.environ.get("HB_FEMALE", "1") != "0"
 
 ZA = os.path.join(ROOT, "src/zanat/Z-Anatomy/Startup.blend")
 OUT = os.path.join(ROOT, "out", "")
@@ -68,7 +71,14 @@ body = bpy.data.objects["Body"]
 masks = [m for m in body.modifiers if m.type == "MASK"]
 for m in masks: m.show_viewport = False
 dg = bpy.context.evaluated_depsgraph_get(); bme = body.evaluated_get(dg).to_mesh()
-SK = np.array([body.matrix_world @ v.co for v in bme.vertices]); body.evaluated_get(dg).to_mesh_clear()
+SK = np.array([body.matrix_world @ v.co for v in bme.vertices])
+body.evaluated_get(dg).to_mesh_clear()
+# the skin surface itself: helper geometry (skirt/tights proxies) masked, clothes masks off
+for m in masks: m.show_viewport = not m.vertex_group.startswith("Delete.")
+dg = bpy.context.evaluated_depsgraph_get(); bme2 = body.evaluated_get(dg).to_mesh()
+SKV = np.array([body.matrix_world @ v.co for v in bme2.vertices])
+TRI = np.array([(p.vertices[0], p.vertices[i], p.vertices[i + 1]) for p in bme2.polygons for i in range(1, len(p.vertices) - 1)])
+body.evaluated_get(dg).to_mesh_clear()
 for m in masks: m.show_viewport = True
 gi = {g.index: g.name for g in body.vertex_groups}
 keep = np.zeros(len(SK), bool); torso = np.zeros(len(SK), bool)
@@ -98,6 +108,26 @@ sy = (b_s - f_s) / (za_back - za_front); ty = f_s - za_front * sy
 Mt = Matrix.Translation((0, ty, 0)) @ Matrix.Diagonal((sx_t, sy, sz, 1))
 Mp = Matrix.Translation((0, ty, 0)) @ Matrix.Diagonal((sx_p, sy, sz, 1))
 print("SKEL trunk sx/sy/sz", round(sx_t, 3), round(sy, 3), round(sz, 3), "pelvis sx", round(sx_p, 3), "ty", round(ty, 3))
+def apply_np(M, a): M = np.array(M); return a @ M[:3, :3].T + M[:3, 3]
+SKIN = FF.Skin(SKV, TRI)
+PELVIS = [n for n in PARTS if re.match(r"Hip bone|Sacrum|Coccyx|Sacrococcygeal", n)]
+FP = lambda a: a
+FEM_REPORT = {}
+_hip0 = {}
+for s_ in "lr":
+    f_ = V(f"Femur.{s_}"); m_ = f_[np.abs(f_[:, 0]) < np.median(np.abs(f_[:, 0]))]; _hip0[s_] = m_[m_[:, 2] > m_[:, 2].max() - .04].mean(0)
+if FEMALE:   # female pelvis: fitted on the skin-fitted male pelvis, femoral heads follow the new acetabula
+    FP, FEM_REPORT["pelvis"] = FF.fit_pelvis(apply_np(Mp, V("Hip bone.l")), apply_np(Mp, V("Hip bone.r")), apply_np(Mp, V("Sacrum")),
+                                             apply_np(Mp, _hip0["l"][None])[0], apply_np(Mp, _hip0["r"][None])[0], SKIN, sx_p, log=print)
+
+# ---- the inferior edge of the pubic symphysis sits ~3 cm above the perineal skin: lift the pelvis if it is lower
+_P = SKIN.v[SKIN.t].mean(1); _m = (np.abs(_P[:, 0]) < .012) & (_P[:, 2] > .55 * body_top - .35) & (_P[:, 2] < .6 * body_top)
+CROTCH = float(_P[_m][:, 2].min())
+_hb = FP(np.vstack([apply_np(Mp, V("Hip bone.l")), apply_np(Mp, V("Hip bone.r"))])); _c = _hb[np.abs(_hb[:, 0]) < .008]
+LIFT = max(0.0, CROTCH + .03 - float(_c[:, 2].min()))
+PROM_Z = float(FP(apply_np(Mp, V("Sacrum")))[:, 2].max()) + LIFT
+FP2 = lambda a: FP(a) + np.array([0, 0, LIFT])
+print("SKEL crotch", round(CROTCH, 3), "pelvis lifted", round(LIFT * 100, 1), "cm")
 
 T = {}        # part name -> 4x4
 BONE = {}     # part name -> rig bone (rigid) ; or "SPINE" for per-vertex blend
@@ -110,7 +140,7 @@ for side, S in (("l", "L"), ("r", "R")):
     m2 = V(f"Second metatarsal bone.{side}"); mtp2 = m2[np.argmax(np.linalg.norm(m2 - ankle, axis=1))]
     cla = V(f"Clavicle.{side}"); scj = cla[np.argsort(np.abs(cla[:, 0]))[:40]].mean(0)
     segs = [
-        (["Femur", "Patella"], hip, knee, Mp @ Vector(hip), J(f"lowerleg01.{S}"), f"upperleg02.{S}"),
+        (["Femur", "Patella"], hip, knee, Vector(FP2(apply_np(Mp, np.array(hip)[None]))[0]), J(f"lowerleg01.{S}"), f"upperleg02.{S}"),
         (["Tibia", "Fibula"], knee, ankle, J(f"lowerleg01.{S}"), J(f"foot.{S}"), f"lowerleg01.{S}"),
         (["Humerus"], sho, elb, J(f"upperarm01.{S}"), J(f"lowerarm01.{S}"), f"upperarm02.{S}"),
         (["Radius", "Ulna"], elb, wri, J(f"lowerarm01.{S}"), J(f"wrist.{S}"), f"lowerarm02.{S}"),
@@ -173,9 +203,30 @@ for n in PARTS:
 # hyoid sits in the neck
 if "Hyoid bone" in PARTS: BONE["Hyoid bone"] = "neck02"
 
+# ---- samples of the original bones for the muscle warp (before anything moves)
+SAMP = {n: V(n)[:: max(1, len(PARTS[n].vertices) // 400)].copy() for n in PARTS}
+
 # ---- apply transforms
 for n, me in PARTS.items():
     me.transform(T[n])
+
+# ---- female rib cage: fitted after the trunk transform, on the real skin
+THORAX = [n for n in PARTS if re.search(r" rib\.[lr]$|Costal cartilage|sternum|Sternum|Xiphoid", n)]
+FT = lambda a: a
+if FEMALE:
+    tv_ = [n for n in PARTS if re.match(r"Vertebra T\d+$", n)]
+    spine_y = float(np.median([V(n).mean(0)[1] for n in tv_]))
+    FT, FEM_REPORT["thorax"] = FF.fit_thorax(np.vstack([V(n) for n in PARTS if re.search(r" rib\.[lr]$", n)]), V("Body of sternum"),
+                                             V("Manubrium of sternum"), spine_y, SKIN, log=print)
+# lumbar spine (and everything of the trunk fit) rises with the pelvis, fading out by the upper chest
+Z_TOP = float(J("clavicle.L")[2])
+def LIFTF(a):
+    a = np.asarray(a, float).copy(); a[:, 2] += LIFT * (1 - FF.sstep(PROM_Z, Z_TOP, a[:, 2])); return a
+TRUNK = [n for n in PARTS if T.get(n) is Mt and n not in PELVIS]
+MORPH = {n: FP2 for n in PELVIS}
+for n in TRUNK: MORPH[n] = (lambda a, f=(FT if n in THORAX else (lambda b: b)): LIFTF(f(a)))
+for n, fn in MORPH.items():
+    me = PARTS[n]; a = fn(V(n)); me.vertices.foreach_set("co", a.astype(np.float32).ravel()); me.update()
 
 # ---- spine chain: rig bones with their z-range after the fit
 CHAIN = ["root", "spine05", "spine04", "spine03", "spine02", "spine01", "neck01", "neck02", "neck03", "head"]
@@ -236,14 +287,16 @@ for n, me in PARTS.items():
 print("SKEL bound", len(PARTS), "verts", sum(len(o.data.vertices) for o in col.objects))
 
 # ---- warp data for the muscle stage: sampled original bone points + their part transforms
-pts, ids, mats, names = [], [], [], []
+pts, ids, mats, names, disp = [], [], [], [], []
 for n in PARTS:
     names.append(n); mats.append(np.array(T[n]))
 for i, n in enumerate(names):
-    a = np.array([np.array(T[n].inverted() @ v.co) for v in bpy.data.objects[n].data.vertices])   # back to original Z-Anatomy space
-    sel = a[:: max(1, len(a) // 400)]
-    pts.append(sel); ids.append(np.full(len(sel), i))
-np.savez(OUT + "warp.npz", pts=np.vstack(pts), ids=np.concatenate(ids), mats=np.array(mats), names=np.array(names))
+    sel = SAMP[n]; moved = apply_np(T[n], sel)
+    d = (MORPH[n](moved) - moved) if n in MORPH else np.zeros_like(moved)     # female reshaping on top of the part's transform
+    pts.append(sel); ids.append(np.full(len(sel), i)); disp.append(d)
+np.savez(OUT + "warp.npz", pts=np.vstack(pts), ids=np.concatenate(ids), mats=np.array(mats), names=np.array(names), disp=np.vstack(disp))
+json.dump({k: {kk: (vv if not isinstance(vv, dict) else {a: round(float(b), 4) for a, b in vv.items()}) for kk, vv in v.items() if kk != "params" or True}
+           for k, v in FEM_REPORT.items()}, open(OUT + "female_fit.json", "w"), indent=1, default=float)
 json.dump({n: BONE[n] for n in PARTS}, open(OUT + "skeleton_bones.json", "w"), indent=0)
 bpy.ops.wm.save_as_mainfile(filepath=OUT + "anatomy.blend")
 print("SKEL saved")
