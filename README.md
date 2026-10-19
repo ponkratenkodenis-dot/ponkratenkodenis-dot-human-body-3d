@@ -1,0 +1,107 @@
+# Анатомия Ева: 3D-модель человека со слоями и командами для ИИ
+
+Женская 3D-модель взрослого человека (1,75 м) с настоящей анатомией внутри. Модель можно переодевать и снимать слои, гнуть позвоночник по отделам и управлять ею JSON-командами, обычными фразами или любой ИИ через tool calling.
+
+- **Слои:** одежда → кожа → мышцы (665) → скелет (305 частей). Есть все позвонки C1–L5, крестец и копчик, 23 межпозвонковых диска с пульпозными ядрами и связки позвоночника.
+- **Живая модель:** скелет для анимации из 163 костей (5 сегментов позвоночника, 3 шейных, кисти, стопы, лицо).
+  - Кости и мышцы привязаны к нему и двигаются вместе с кожей.
+  - Наклон, прогиб, наклон вбок и скручивание делятся между отделами позвоночника так, как они делятся у человека.
+  - Ноги стоят на месте при любом наклоне.
+  - Есть дыхание.
+- **Один файл `viewer/human.glb` (12 МБ, glTF 2.0 + Draco):** открывается в браузере (three.js, Babylon), Blender, Unity (glTFast), Unreal, Godot.
+  - У каждой меши своё имя (`Vertebra L4`, `Femur.l`, `M Biceps brachii muscle.l`…).
+  - В extras записан слой: `skin`, `clothes`, `muscles`, `skeleton`.
+  - Цвет вершин кожи — маска «под одеждой»: R — костюм, G — обувь. По ней кожу под одеждой можно скрыть без мерцания.
+- **Масштаб любой:** `scale` от значка до полного экрана; 1 = 1,75 м, единицы — метры.
+
+Кожа без раздевания нейтральная, как учебный манекен: без текстуры и без анатомической детализации интимных зон. Это вид для уроков, медицины и публичных проектов.
+
+## Запуск
+
+```
+cd viewer && python3 -m http.server 8000
+# открыть http://localhost:8000
+```
+three.js подгружается с jsDelivr (версия 0.170.0 закреплена), декодер Draco лежит в `viewer/draco/`.
+
+## Управление
+
+### Из кода страницы
+```js
+Body.run({ op: "peel", to: "xray" });
+Body.run([{ op: "pose", preset: "forward_bend", amount: 0.6 }, { op: "highlight", part: "L4-L5" }, { op: "focus", part: "L4-L5" }]);
+Body.run("наклонись вперёд на 40 градусов и покажи поясничный отдел сзади");   // простой разбор фраз без ИИ
+```
+
+### Из другого проекта (страница во `<iframe>`)
+```js
+frame.contentWindow.postMessage({ type: "body_command", id: 1, commands: [{ op: "pose", preset: "squat" }] }, "*");
+addEventListener("message", e => { if (e.data.type === "body_result") console.log(e.data.results); });
+```
+
+### Любая ИИ
+`Body.TOOL` — готовое описание инструмента `body_command` в формате JSON Schema (`name`, `description`, `input_schema`) для Claude, OpenAI и других моделей с tool calling.
+- ИИ отвечает массивом `commands`.
+- Страница выполняет его через `Body.run`.
+- Пример для Claude API — в `examples/claude_tool_use.md`.
+
+На опубликованной странице в claude.ai вкладка «Команды» понимает обычные фразы через Claude аккаунта зрителя. При первом запросе Claude спрашивает разрешение. Вне claude.ai работает встроенный разбор фраз.
+
+### Команды
+
+| op | что делает | пример |
+|---|---|---|
+| `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow`; `amount` 0..1 | `{"op":"pose","preset":"squat","amount":0.7}` |
+| `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise` | `{"op":"set","spineFlex":30,"neckTwist":-20}` |
+| `bend` | согнуть один отдел: `lumbar`, `thoracic`, `cervical` | `{"op":"bend","region":"lumbar","flex":25}` |
+| `peel` | глубина: `dressed, skin, muscles, muscles_bones, skeleton, xray` | `{"op":"peel","to":"xray"}` |
+| `layers` / `opacity` | слои по отдельности и их прозрачность | `{"op":"opacity","layer":"skin","value":0.2}` |
+| `highlight` / `clear` | подсветить часть или группу (видна сквозь слои над ней) | `{"op":"highlight","part":"поясничный"}` |
+| `focus` | навести камеру на часть | `{"op":"focus","part":"Femur.l"}` |
+| `hide` | скрыть отдельную часть | `{"op":"hide","part":"рёбра"}` |
+| `view` / `zoom` / `scale` | ракурс, приближение, масштаб | `{"op":"view","angle":"back"}` |
+| `life` | дыхание вкл/выкл | `{"op":"life","on":false}` |
+| `list` | справка: `parts, vertebrae, presets, layers, commands` | `{"op":"list","what":"vertebrae"}` |
+| `state` / `snap` / `reset` | текущее состояние, мгновенно завершить переходы, сброс | |
+
+Знаки: плюс у `spineFlex` — вперёд, у `spineSide` — вправо, у `spineTwist` — влево; плюс у `kneeL` и `elbowL` — сгибание.
+
+Части ищутся:
+- по точному имени (`Vertebra T7`);
+- по русскому имени (`Бедренная кость, левая`);
+- по коду позвонка (`L4`) и диска (`L4-L5`);
+- по группе: `позвоночник, шейный, грудной, поясничный, рёбра, диски, таз, череп`.
+
+## Как собрана модель (`tools/`)
+
+Всё воспроизводится в Blender 4.2 без интерфейса:
+```
+blender -b --factory-startup --python tools/build_body.py -- out/body.blend      # тело MPFB2: женщина, скелет default, одежда, волосы
+blender -b out/body.blend --python tools/build_skeleton.py                       # скелет Z-Anatomy внутри тела, привязка к костям
+blender -b out/anatomy.blend --python tools/build_muscles.py -- 0.25             # мышцы: деформация по костям, внутрь кожи, веса с кожи
+blender -b out/anatomy_m.blend --python tools/export_all.py -- viewer/human.glb --draco
+```
+Нужны:
+- MPFB2 (расширение Blender) с пакетом `makehuman_system_assets_cc0`;
+- `Startup.blend` из Z-Anatomy в `src/zanat/Z-Anatomy/`.
+
+Как подогнана анатомия:
+- кости конечностей переносятся по своим суставным центрам на суставы скелета для анимации;
+- торс подгоняется по коже: ширина рёбер и таза под кожей, грудина спереди, остистые отростки сзади;
+- шея плавно переходит от торса к голове;
+- мышцы деформируются вслед за ближайшими костями, их точки за пределами кожи прижимаются внутрь, веса переносятся с кожи.
+
+**Что пока приблизительно:**
+- Скелет и мышцы Z-Anatomy сняты с мужского образца (BodyParts3D). Таз и грудная клетка подогнаны под женское тело только масштабом.
+- Кисти и стопы двигаются целиком, фаланги отдельно пока не сгибаются.
+- Органов пока нет. Они есть в Z-Anatomy и добавляются тем же способом.
+
+## Лицензии
+
+- **Тело, одежда, волосы, скелет для анимации:** MakeHuman / MPFB2, CC0.
+- **Скелет, диски, связки, мышцы:** Z-Anatomy, CC BY-SA 4.0, на основе BodyParts3D © The Database Center for Life Science, CC BY-SA 2.1 Japan.
+  - `human.glb` содержит эти части, поэтому распространяется по CC BY-SA 4.0.
+  - Использовать можно где угодно, в том числе коммерчески, с указанием авторства.
+  - Изменённую модель нужно отдавать под той же лицензией.
+  - Подробности в `ATTRIBUTION.md`.
+- **Код просмотрщика и скрипты:** лицензию выбирает владелец репозитория. Пока файла LICENSE нет.

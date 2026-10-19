@@ -1,0 +1,172 @@
+{
+  "name": "body_command",
+  "description": "Управляет 3D-моделью человека: позы, сгибание позвоночника по отделам, слои (одежда/кожа/мышцы/скелет), подсветка и фокус на частях, камера. Передавай массив commands, они выполняются по порядку.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "commands": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "pose",
+                "set",
+                "bend",
+                "layers",
+                "peel",
+                "opacity",
+                "highlight",
+                "clear",
+                "focus",
+                "hide",
+                "view",
+                "zoom",
+                "scale",
+                "life",
+                "reset",
+                "list",
+                "state",
+                "snap"
+              ]
+            },
+            "preset": {
+              "type": "string",
+              "enum": [
+                "stand",
+                "anatomical",
+                "forward_bend",
+                "back_bend",
+                "side_bend_left",
+                "side_bend_right",
+                "twist_left",
+                "twist_right",
+                "arms_up",
+                "t_pose",
+                "squat",
+                "slouch",
+                "look_down",
+                "look_up",
+                "cat",
+                "cow"
+              ]
+            },
+            "amount": {
+              "type": "number"
+            },
+            "region": {
+              "type": "string",
+              "enum": [
+                "lumbar",
+                "thoracic",
+                "cervical"
+              ]
+            },
+            "flex": {
+              "type": "number"
+            },
+            "side": {
+              "type": "number"
+            },
+            "twist": {
+              "type": "number"
+            },
+            "show": {},
+            "hide": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "to": {
+              "type": "string"
+            },
+            "layer": {
+              "type": "string"
+            },
+            "value": {
+              "type": "number"
+            },
+            "part": {
+              "type": "string"
+            },
+            "color": {
+              "type": "string"
+            },
+            "angle": {
+              "type": "string"
+            },
+            "factor": {
+              "type": "number"
+            },
+            "on": {
+              "type": "boolean"
+            },
+            "what": {
+              "type": "string"
+            },
+            "spineFlex": {
+              "type": "number"
+            },
+            "spineSide": {
+              "type": "number"
+            },
+            "spineTwist": {
+              "type": "number"
+            },
+            "neckFlex": {
+              "type": "number"
+            },
+            "neckSide": {
+              "type": "number"
+            },
+            "neckTwist": {
+              "type": "number"
+            },
+            "hipFlex": {
+              "type": "number"
+            },
+            "armLRaise": {
+              "type": "number"
+            },
+            "armRRaise": {
+              "type": "number"
+            },
+            "armLForward": {
+              "type": "number"
+            },
+            "armRForward": {
+              "type": "number"
+            },
+            "elbowL": {
+              "type": "number"
+            },
+            "elbowR": {
+              "type": "number"
+            },
+            "kneeL": {
+              "type": "number"
+            },
+            "kneeR": {
+              "type": "number"
+            },
+            "hipLRaise": {
+              "type": "number"
+            },
+            "hipRRaise": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      }
+    },
+    "required": [
+      "commands"
+    ]
+  }
+}

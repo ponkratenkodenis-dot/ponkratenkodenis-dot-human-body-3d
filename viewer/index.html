@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>Анатомия Ева</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Spectral:ital,wght@0,500;0,600;1,500&display=swap">
+<style>
+/* Layout: a clinical light-box. The body stands full-height on the stage; one instrument panel on the left
+   (a bottom sheet on phones), a part card top-right, attribution as a quiet line. Teal = controls, amber = selection. */
+:root{
+  --bg:#e6ecef; --stage-a:#f3f6f7; --stage-b:#d7e0e4; --panel:#f8fafb; --ink:#14212a; --muted:#576873; --line:#cdd7dc;
+  --accent:#0d6b76; --accent-ink:#ffffff; --hl:#d98e04; --chip:#e9eff1;
+  --f-display:"Spectral",Georgia,"Times New Roman",serif; --f-ui:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:10px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b1318; --stage-a:#15232b; --stage-b:#081015; --panel:#111c23; --ink:#dce6eb; --muted:#8c9fa9; --line:#22343e;
+  --accent:#4cb3be; --accent-ink:#06171b; --hl:#f0b64a; --chip:#182730; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b1318; --stage-a:#15232b; --stage-b:#081015; --panel:#111c23; --ink:#dce6eb; --muted:#8c9fa9; --line:#22343e;
+  --accent:#4cb3be; --accent-ink:#06171b; --hl:#f0b64a; --chip:#182730; color-scheme:dark}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-ui);overflow:hidden}
+.app{position:relative;height:100%;display:grid;grid-template-columns:330px 1fr;grid-template-rows:1fr auto}
+#stage{position:absolute;inset:0 0 0 342px;background:radial-gradient(120% 90% at 60% 35%,var(--stage-a),var(--stage-b))}
+#stage canvas{display:block;touch-action:none;outline:none}
+aside{position:relative;z-index:2;grid-row:1/-1;margin:12px 0 12px max(12px,env(safe-area-inset-left,0px));background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  display:flex;flex-direction:column;min-height:0;box-shadow:0 10px 30px -18px rgba(10,30,40,.45)}
+.brand{padding:16px 18px 10px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.brand h1{font:600 1.35rem/1.1 var(--f-display);margin:0;letter-spacing:.005em}
+.brand small{color:var(--muted);font-size:.78rem}
+.tabs{display:flex;gap:4px;padding:0 12px;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;padding:9px 4px 8px;color:var(--muted);font:700 .78rem var(--f-ui);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.pane{padding:14px 16px 18px;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:16px}
+.group{display:flex;flex-direction:column;gap:8px}
+.label{font:700 .7rem var(--f-ui);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:999px;padding:6px 11px;font:500 .84rem var(--f-ui);cursor:pointer}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.chip.mono{font-family:var(--f-mono);font-size:.78rem;padding:4px 8px;border-radius:6px;min-width:2.6em;text-align:center}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 10px}
+.row label{font-size:.88rem}
+.row output{font:500 .78rem var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums;min-width:3.4em;text-align:right}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.layer{display:grid;grid-template-columns:auto 1fr 90px;align-items:center;gap:10px}
+.layer input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);width:17px;height:17px}
+.spine{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:start}
+.spine .rg{font:600 .8rem var(--f-display);font-style:italic;color:var(--muted);padding-top:4px;min-width:6.5em}
+.ai{display:flex;flex-direction:column;gap:8px}
+textarea{width:100%;box-sizing:border-box;min-height:74px;resize:vertical;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);padding:9px 10px;font:15px/1.4 var(--f-ui)}
+.btn{align-self:flex-start;border:0;border-radius:var(--r);background:var(--accent);color:var(--accent-ink);font:700 .9rem var(--f-ui);padding:9px 16px;cursor:pointer}
+.btn.ghost{background:var(--chip);color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.55;cursor:default}
+.log{font:12px/1.5 var(--f-mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.reply{font-size:.92rem;line-height:1.5}
+.hint{color:var(--muted);font-size:.82rem}
+code,.mono{font-family:var(--f-mono)}
+.card{position:absolute;z-index:3;top:max(14px,env(safe-area-inset-top,0px));right:max(14px,env(safe-area-inset-right,0px));max-width:min(340px,calc(100% - 28px));
+  background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--hl);border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px -18px rgba(10,30,40,.5)}
+.card h2{margin:0 0 2px;font:600 1.15rem/1.2 var(--f-display);text-wrap:balance}
+.card p{margin:0;color:var(--muted);font-size:.82rem}
+.card .acts{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+.viewbar{position:absolute;z-index:2;right:max(14px,env(safe-area-inset-right,0px));bottom:calc(34px + env(safe-area-inset-bottom,0px));display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.credits{position:absolute;z-index:2;right:max(14px,env(safe-area-inset-right,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));font-size:.72rem;color:var(--muted);text-align:right}
+.credits a{color:inherit}
+.loading{position:absolute;z-index:5;inset:0;display:grid;place-items:center;background:var(--bg)}
+.loading div{display:flex;flex-direction:column;gap:10px;align-items:center;font:500 1rem var(--f-display)}
+.bar{width:220px;height:4px;background:var(--line);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+:focus-visible{outline:2px solid var(--hl);outline-offset:2px}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr} #stage{inset:0 0 46% 0}
+  aside{position:absolute;left:0;right:0;bottom:0;top:auto;margin:0;border-radius:16px 16px 0 0;max-height:47%;
+    padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
+  .brand{padding:10px max(16px,env(safe-area-inset-left,0px)) 6px}
+  .pane{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .viewbar{bottom:calc(47% + 10px)} .credits{display:none}
+  .card{max-width:calc(100% - 28px)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <div id="stage" aria-label="3D-модель человека"></div>
+  <aside>
+    <div class="brand"><h1>Анатомия Ева</h1><small>3D · 1,75 м</small></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="layers">Слои</button>
+      <button role="tab" aria-selected="false" data-tab="pose">Поза</button>
+      <button role="tab" aria-selected="false" data-tab="spine">Позвоночник</button>
+      <button role="tab" aria-selected="false" data-tab="ai">Команды</button>
+    </div>
+    <section class="pane" data-pane="layers">
+      <div class="group"><span class="label">Глубина</span>
+        <div class="chips" id="peel">
+          <button class="chip" data-peel="dressed" aria-pressed="true">В одежде</button>
+          <button class="chip" data-peel="skin">Кожа</button>
+          <button class="chip" data-peel="muscles">Мышцы</button>
+          <button class="chip" data-peel="muscles_bones">Мышцы и кости</button>
+          <button class="chip" data-peel="skeleton">Скелет</button>
+          <button class="chip" data-peel="xray">Рентген</button>
+        </div></div>
+      <div class="group" id="layerRows"><span class="label">Слои и прозрачность</span></div>
+      <p class="hint">Нажмите на любую часть тела, чтобы узнать, что это. Вращайте модель пальцем или мышью, колесом и щипком приближайте.</p>
+    </section>
+    <section class="pane" data-pane="pose" hidden>
+      <div class="group"><span class="label">Готовые позы</span><div class="chips" id="presets"></div></div>
+      <div class="group" id="sliders"><span class="label">Точно, в градусах</span></div>
+      <div class="row"><label for="life">Дыхание и живые движения</label><input type="checkbox" id="life" checked></div>
+    </section>
+    <section class="pane" data-pane="spine" hidden>
+      <div class="group"><span class="label">Позвонки — нажмите, чтобы показать</span><div class="spine" id="vert"></div></div>
+      <div class="group" id="regions"><span class="label">Согнуть отдел</span></div>
+    </section>
+    <section class="pane" data-pane="ai" hidden>
+      <div class="ai">
+        <span class="label">Скажите, что показать</span>
+        <textarea id="ask" placeholder="Например: наклонись вперёд на 40 градусов и покажи поясничный отдел сзади"></textarea>
+        <div class="chips"><button class="btn" id="go">Выполнить</button><button class="btn ghost" id="stop" hidden>Стоп</button></div>
+        <div class="reply" id="reply" aria-live="polite"></div>
+        <span class="label">Выполненные команды</span>
+        <div class="log" id="log">—</div>
+        <p class="hint" id="aimode"></p>
+        <details><summary class="hint">Для разработчиков: управление из кода и ИИ</summary>
+          <p class="hint">В консоли страницы: <code>Body.run({"op":"pose","preset":"forward_bend","amount":.5})</code>. Описание инструмента для любой ИИ — <code>Body.TOOL</code> (JSON Schema).</p>
+          <button class="btn ghost" id="copyTool">Скопировать схему инструмента</button>
+        </details>
+      </div>
+    </section>
+  </aside>
+  <div class="card" id="card" hidden><h2 id="cardName"></h2><p id="cardSub"></p><div class="acts"><button class="chip" id="cardFocus">Приблизить</button><button class="chip" id="cardClear">Снять выделение</button></div></div>
+  <div class="viewbar"><button class="chip" data-view="front">Спереди</button><button class="chip" data-view="left">Сбоку</button><button class="chip" data-view="back">Сзади</button><button class="chip" id="reset">Сброс</button></div>
+  <div class="credits">Тело: <a href="https://static.makehumancommunity.org/" target="_blank" rel="noopener">MakeHuman/MPFB2</a> (CC0) · Анатомия: <a href="https://github.com/Z-Anatomy/Models-of-human-anatomy" target="_blank" rel="noopener">Z-Anatomy</a> на основе BodyParts3D, CC BY-SA 4.0</div>
+  <div class="loading" id="loading"><div>Загружаю модель<span class="bar"><i id="prog"></i></span><span class="hint" id="loadNote">12 МБ: кожа, 305 костей, 665 мышц</span></div></div>
+</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module">
+import { HumanBody, LAYERS, PRESETS } from "./body.js";
+import { Commander, TOOL, COMMANDS } from "./commands.js";
+import { VERTEBRAE, ruName } from "./names-ru.js";
+const $ = id => document.getElementById(id);
+
+let wasm = true;
+try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); } catch (e) { wasm = false; }
+const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js" });
+const cmd = new Commander(body);
+window.Body = { body, run: c => cmd.run(c), TOOL, COMMANDS };
+/* embedding: a parent page (iframe host) sends {type:"body_command", commands:[...], id} and gets {type:"body_result", id, results} back */
+addEventListener("message", e => {
+  const d = e.data; if (!d || d.type !== "body_command") return;
+  let results; try { results = cmd.run(d.commands || d.command); syncSliders(); } catch (err) { results = { ok: false, error: String(err.message || err) }; }
+  if (e.source) e.source.postMessage({ type: "body_result", id: d.id, results }, e.origin === "null" ? "*" : e.origin);
+});
+
+/* tabs */
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll(".pane").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+});
+
+/* layers */
+const LNAME = { clothes: "Одежда", hair: "Волосы", skin: "Кожа", muscles: "Мышцы", skeleton: "Скелет" };
+for (const l of LAYERS) {
+  const r = document.createElement("div"); r.className = "layer";
+  r.innerHTML = `<input type="checkbox" id="ly-${l}"><label for="ly-${l}">${LNAME[l]}</label><input type="range" id="op-${l}" min="0" max="1" step=".05" aria-label="Прозрачность: ${LNAME[l]}">`;
+  $("layerRows").append(r);
+  r.querySelector("input[type=checkbox]").onchange = e => { body.setLayer(l, e.target.checked); markPeel(null); };
+  r.querySelector("input[type=range]").oninput = e => body.setOpacity(l, +e.target.value);
+}
+body.addEventListener("layers", e => { for (const l of LAYERS) { $("ly-" + l).checked = e.detail.on[l]; $("op-" + l).value = e.detail.opacity[l]; } });
+const markPeel = v => document.querySelectorAll("#peel .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.peel === v));
+document.querySelectorAll("#peel .chip").forEach(c => c.onclick = () => { body.peel(c.dataset.peel); markPeel(c.dataset.peel); log({ op: "peel", to: c.dataset.peel }); });
+
+/* poses */
+const PNAME = { stand: "Стойка", anatomical: "Анатомическая", forward_bend: "Наклон вперёд", back_bend: "Прогиб назад", side_bend_left: "Вбок влево", side_bend_right: "Вбок вправо",
+  twist_left: "Поворот влево", twist_right: "Поворот вправо", arms_up: "Руки вверх", t_pose: "Руки в стороны", squat: "Присед", slouch: "Сутулость", look_down: "Голову вниз", look_up: "Голову вверх", cat: "Кошка", cow: "Корова" };
+for (const p of Object.keys(PRESETS)) { const b = document.createElement("button"); b.className = "chip"; b.textContent = PNAME[p] || p; b.onclick = () => { body.preset(p); syncSliders(); log({ op: "pose", preset: p }); }; $("presets").append(b); }
+const SL = [["spineFlex", "Наклон вперёд / назад", -35, 90], ["spineSide", "Наклон вбок", -40, 40], ["spineTwist", "Поворот корпуса", -45, 45], ["neckFlex", "Голова вниз / вверх", -45, 55],
+  ["neckTwist", "Поворот головы", -70, 70], ["hipFlex", "Сгибание в тазобедренных", -15, 95], ["armLRaise", "Левая рука в сторону", -40, 140], ["armRRaise", "Правая рука в сторону", -40, 140], ["kneeL", "Колено левое", 0, 130], ["kneeR", "Колено правое", 0, 130]];
+for (const [k, name, lo, hi] of SL) {
+  const r = document.createElement("div"); r.className = "row";
+  r.innerHTML = `<label for="s-${k}">${name}</label><output id="o-${k}">0°</output><input type="range" id="s-${k}" min="${lo}" max="${hi}" step="1" value="0">`;
+  $("sliders").append(r);
+  r.querySelector("input").oninput = e => { body.setPose({ [k]: +e.target.value }); $("o-" + k).textContent = e.target.value + "°"; };
+}
+function syncSliders() { for (const [k] of SL) { const v = Math.round(body.target[k]); $("s-" + k).value = v; $("o-" + k).textContent = v + "°"; } }
+$("life").onchange = e => (body.live = e.target.checked);
+
+/* spine */
+const RG = [["Шейный", VERTEBRAE.slice(0, 7)], ["Грудной", VERTEBRAE.slice(7, 19)], ["Поясничный", VERTEBRAE.slice(19, 24)], ["Крестец и копчик", VERTEBRAE.slice(24)]];
+const short = n => n === "Atlas (C1)" ? "C1" : n === "Axis (C2)" ? "C2" : n === "Sacrum" ? "S" : n === "Coccyx" ? "Co" : n.replace("Vertebra ", "");
+for (const [g, list] of RG) {
+  const h = document.createElement("span"); h.className = "rg"; h.textContent = g;
+  const c = document.createElement("div"); c.className = "chips";
+  for (const n of list) { const b = document.createElement("button"); b.className = "chip mono"; b.textContent = short(n); b.title = ruName(n);
+    b.onclick = () => { if (!body.layerOn.skeleton) { body.peel("xray"); markPeel("xray"); } show(body.highlight(n)[0]); body.focus(n, 2.2); log({ op: "highlight", part: n }); }; c.append(b); }
+  $("vert").append(h, c);
+}
+for (const [rk, name] of [["lumbar", "Поясничный"], ["thoracic", "Грудной"], ["cervical", "Шейный"]]) {
+  const r = document.createElement("div"); r.className = "row";
+  r.innerHTML = `<label for="rb-${rk}">${name}: сгибание</label><output id="ro-${rk}">0°</output><input type="range" id="rb-${rk}" min="-30" max="45" value="0">`;
+  $("regions").append(r);
+  r.querySelector("input").oninput = e => { body.bendRegion(rk, { flex: +e.target.value }); $("ro-" + rk).textContent = e.target.value + "°"; };
+}
+
+/* part card */
+function show(info) {
+  if (!info) { $("card").hidden = true; return; }
+  $("card").hidden = false; $("cardName").textContent = info.ru;
+  const LN = { skin: "кожа", muscles: "мышцы", skeleton: "скелет", clothes: "одежда", hair: "волосы" };
+  $("cardSub").textContent = (info.ru !== info.name ? info.name + " · " : "") + "слой: " + (LN[info.layer] || info.layer);
+  $("cardFocus").onclick = () => body.focus(info.name, 3);
+}
+body.addEventListener("pick", e => { const i = e.detail; if (!i) return; body.highlight(i.name); show(i); });
+$("cardClear").onclick = () => { body.clearHighlight(); $("card").hidden = true; };
+document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => body.view(b.dataset.view));
+$("reset").onclick = () => { cmd.run({ op: "reset" }); syncSliders(); markPeel("dressed"); $("card").hidden = true; document.querySelectorAll("#regions input").forEach(i => { i.value = 0; i.dispatchEvent(new Event("input")); }); };
+
+/* commands: Claude when the viewer allows it, an offline phrase parser otherwise */
+const lines = [];
+function log(c, res) { lines.unshift(JSON.stringify(c) + (res && res.ok === false ? "  ✗ " + (res.error || "") : "")); $("log").textContent = lines.slice(0, 40).join("\n"); }
+let sample = null, ctl = null;
+window.claude?.use?.("sample").then(s => { sample = s; $("aimode").textContent = s ? "Фразы понимает Claude (по вашему аккаунту, с вашего разрешения при первом запросе)." : "Сейчас работает встроенный разбор простых фраз; JSON-команды работают всегда."; }).catch(() => {});
+$("aimode").textContent = "Встроенный разбор простых фраз; JSON-команды работают всегда.";
+const RULES = `Ты управляешь 3D-моделью женского тела в учебном анатомическом просмотрщике. Пользователь пишет, что показать или как двигаться.
+Вызывай инструмент body_command (массив commands выполняется по порядку), при необходимости find_parts, чтобы узнать точные имена частей.
+Команды: ${JSON.stringify(Object.fromEntries(Object.entries(COMMANDS).map(([k, v]) => [k, v.desc])))}
+Позвонки: ${VERTEBRAE.join(", ")}. Диски: "Intervertebral disc L4-L5" и т.п. Части с суффиксом .l/.r — левая/правая.
+Анатомический контекст: учебный, нейтральный. После действий ответь одним-двумя короткими предложениями по-русски: что показано и что важно заметить.`;
+$("go").onclick = async () => {
+  const q = $("ask").value.trim(); if (!q) return;
+  if (/^[\[{]/.test(q)) { try { const r = cmd.run(q); log(JSON.parse(q), r); $("reply").textContent = "Выполнено."; } catch (e) { $("reply").textContent = "Ошибка в JSON: " + e.message; } syncSliders(); return; }
+  if (!sample) { const rs = cmd.phrase(q); rs.forEach(r => log(r.cmd || q, r)); $("reply").textContent = rs[0] && rs[0].ok === false ? rs[0].error : "Готово."; syncSliders(); return; }
+  $("go").disabled = true; $("stop").hidden = false; $("reply").textContent = "Думаю…"; ctl = new AbortController();
+  try {
+    const tools = [
+      { name: "body_command", description: TOOL.description, inputSchema: TOOL.input_schema,
+        execute: inp => { const cs = Array.isArray(inp.commands) ? inp.commands : []; const rs = cs.map(c => { const r = cmd.run(c); log(c, r); return r; }); syncSliders(); return rs; } },
+      { name: "find_parts", description: "Ищет части тела по английскому или русскому названию; возвращает до 30 точных имён со слоем.",
+        inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+        execute: inp => body.find(String(inp.query || "")).slice(0, 30).map(m => body.info(m)) }
+    ];
+    const { text } = await sample([{ role: "user", content: RULES }, { role: "user", content: "Текущее состояние: " + JSON.stringify(body.state()) + "\n\nЗапрос: " + q }],
+      { tools, modelTier: "quick", signal: ctl.signal, onText: ({ text }) => ($("reply").textContent = text) });
+    $("reply").textContent = text;
+  } catch (e) {
+    if (e && e.code === "not_granted" || e && e.code === "sampling_disabled") { sample = null; const rs = cmd.phrase(q); rs.forEach(r => log(r.cmd || q, r)); $("reply").textContent = "Claude недоступен, выполнил по ключевым словам."; }
+    else if (e && e.code !== "cancelled") $("reply").textContent = (e && e.text) || "Не получилось: " + ((e && e.code) || "ошибка") + ". Попробуйте ещё раз или короче.";
+  } finally { $("go").disabled = false; $("stop").hidden = true; }
+};
+$("stop").onclick = () => ctl && ctl.abort();
+$("ask").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("go").click(); });
+$("copyTool").onclick = async () => { const t = JSON.stringify(TOOL, null, 2); try { await navigator.clipboard.writeText(t); $("copyTool").textContent = "Скопировано"; } catch (e) { $("log").textContent = t; $("copyTool").textContent = "Схема показана в журнале выше"; } };
+
+try {
+  await body.load(p => ($("prog").style.width = Math.round(p * 100) + "%"));
+  $("loading").hidden = true; syncSliders();
+} catch (e) { $("loadNote").textContent = "Не удалось загрузить модель: " + (e.message || e); }
+</script>
+
+</body>
+</html>
