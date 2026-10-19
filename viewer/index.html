@@ -56,7 +56,11 @@ textarea{width:100%;box-sizing:border-box;min-height:74px;resize:vertical;border
 .btn:disabled{opacity:.55;cursor:default}
 .log{font:12px/1.5 var(--f-mono);color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 .reply{font-size:.92rem;line-height:1.5}
-.hint{color:var(--muted);font-size:.82rem}
+.hint{color:var(--muted);font-size:.82rem;margin:0}
+.report{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:.84rem}
+.report li{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline}
+.report b{font:500 .78rem var(--f-mono);font-variant-numeric:tabular-nums}
+.report .sh{color:var(--hl)} .report .st{color:var(--accent)}
 code,.mono{font-family:var(--f-mono)}
 .card{position:absolute;z-index:3;top:max(14px,env(safe-area-inset-top,0px));right:max(14px,env(safe-area-inset-right,0px));max-width:min(340px,calc(100% - 28px));
   background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--hl);border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px -18px rgba(10,30,40,.5)}
@@ -110,6 +114,13 @@ code,.mono{font-family:var(--f-mono)}
       <div class="group"><span class="label">Готовые позы</span><div class="chips" id="presets"></div></div>
       <div class="group" id="sliders"><span class="label">Точно, в градусах</span></div>
       <div class="row"><label for="life">Дыхание и живые движения</label><input type="checkbox" id="life" checked></div>
+      <div class="group"><span class="label">Мышцы и кожа</span>
+        <div class="row"><label for="mDrive">Мышцы натянуты между костями</label><input type="checkbox" id="mDrive" checked></div>
+        <div class="row"><label for="mSkin">Кожа лежит на мышцах</label><input type="checkbox" id="mSkin" checked></div>
+        <div class="row"><label for="mTension">Показать работу мышц</label><input type="checkbox" id="mTension"></div>
+        <p class="hint">Оранжевые мышцы укорочены и толще, синие растянуты и тоньше. Объём каждой мышцы сохраняется.</p>
+        <ol class="report" id="mReport"></ol>
+      </div>
     </section>
     <section class="pane" data-pane="spine" hidden>
       <div class="group"><span class="label">Позвонки — нажмите, чтобы показать</span><div class="spine" id="vert"></div></div>
@@ -189,6 +200,14 @@ for (const [k, name, lo, hi] of SL) {
 }
 function syncSliders() { for (const [k] of SL) { const v = Math.round(body.target[k]); $("s-" + k).value = v; $("o-" + k).textContent = v + "°"; } }
 $("life").onchange = e => (body.live = e.target.checked);
+$("mDrive").onchange = e => body.muscles({ drive: e.target.checked });
+$("mSkin").onchange = e => body.muscles({ skin: e.target.checked });
+$("mTension").onchange = e => { body.muscles({ tension: e.target.checked }); if (e.target.checked && !body.layerOn.muscles) { body.peel("muscles"); markPeel("muscles"); } };
+setInterval(() => {
+  if (document.querySelector('[data-pane="pose"]').hidden || !body.drive) return;
+  const items = body.muscleReport(8).filter(r => Math.abs(r.change) >= 3);
+  $("mReport").innerHTML = items.length ? items.map(r => `<li><span>${r.ru}</span><b class="${r.change < 0 ? "sh" : "st"}">${Math.abs(r.change) > 80 ? (r.change > 0 ? "≥ +80" : "≤ −80") : (r.change > 0 ? "+" : "") + r.change}%</b></li>`).join("") : '<li class="hint">В стойке мышцы в покое. Выберите позу.</li>';
+}, 600);
 
 /* spine */
 const RG = [["Шейный", VERTEBRAE.slice(0, 7)], ["Грудной", VERTEBRAE.slice(7, 19)], ["Поясничный", VERTEBRAE.slice(19, 24)], ["Крестец и копчик", VERTEBRAE.slice(24)]];

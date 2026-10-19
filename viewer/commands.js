@@ -21,6 +21,8 @@ export const COMMANDS = {
   reset:     { desc: "Стойка, все слои по умолчанию, камера спереди.", args: {} },
   list:      { desc: "Справка: what = parts | vertebrae | presets | layers | commands; layer — фильтр для parts.", args: { what: "string", layer: "string?" } },
   state:     { desc: "Текущая поза, слои и подсветка.", args: {} },
+  muscles:   { desc: "Мышцы и кожа: drive — мышцы натянуты между костями и меняют толщину; skin — кожа ложится на мышцы; tension — окраска: оранжевые укорочены (работают), синие растянуты.", args: { drive: "boolean?", skin: "boolean?", tension: "boolean?" } },
+  muscle_report: { desc: "Какие мышцы сильнее всего укоротились или растянулись в текущей позе (в %).", args: { limit: "number?" } },
   snap:      { desc: "Мгновенно завершить текущие плавные переходы (позы и камеры).", args: {} }
 };
 
@@ -42,6 +44,7 @@ export const TOOL = {
             show: {}, hide: { type: "array", items: { type: "string" } }, to: { type: "string" },
             layer: { type: "string" }, value: { type: "number" }, part: { type: "string" }, color: { type: "string" },
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
+            drive: { type: "boolean" }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
           required: ["op"]
@@ -85,6 +88,8 @@ export class Commander {
       }
       case "state": return { ok: true, state: b.state() };
       case "snap": b.snap(); return { ok: true };
+      case "muscles": return b.muscles(c);
+      case "muscle_report": return { ok: true, items: b.muscleReport(c.limit || 12) };
       default: return { ok: false, error: "unknown op " + op };
     }
   }

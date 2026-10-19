@@ -51,6 +51,11 @@ def V(name):
 
 
 def top(a, d, axis=2):  return a[a[:, axis] > a[:, axis].max() - d].mean(0)
+def sphere_centre(P):
+    """least-squares sphere through the points (centre of a joint head)"""
+    A = np.c_[2 * P, np.ones(len(P))]; c = np.linalg.lstsq(A, (P ** 2).sum(1), rcond=None)[0]; return c[:3]
+def head_centre(a, d):
+    m = a[np.abs(a[:, 0]) < np.median(np.abs(a[:, 0]))]; return sphere_centre(m[m[:, 2] > m[:, 2].max() - d])
 def bot(a, d, axis=2):  return a[a[:, axis] < a[:, axis].min() + d].mean(0)
 
 
@@ -115,7 +120,7 @@ FP = lambda a: a
 FEM_REPORT = {}
 _hip0 = {}
 for s_ in "lr":
-    f_ = V(f"Femur.{s_}"); m_ = f_[np.abs(f_[:, 0]) < np.median(np.abs(f_[:, 0]))]; _hip0[s_] = m_[m_[:, 2] > m_[:, 2].max() - .04].mean(0)
+    _hip0[s_] = head_centre(V(f"Femur.{s_}"), .045)
 if FEMALE:   # female pelvis: fitted on the skin-fitted male pelvis, femoral heads follow the new acetabula
     FP, FEM_REPORT["pelvis"] = FF.fit_pelvis(apply_np(Mp, V("Hip bone.l")), apply_np(Mp, V("Hip bone.r")), apply_np(Mp, V("Sacrum")),
                                              apply_np(Mp, _hip0["l"][None])[0], apply_np(Mp, _hip0["r"][None])[0], SKIN, sx_p, log=print)
@@ -134,8 +139,8 @@ BONE = {}     # part name -> rig bone (rigid) ; or "SPINE" for per-vertex blend
 for side, S in (("l", "L"), ("r", "R")):
     fem, tib, hum, rad = V(f"Femur.{side}"), V(f"Tibia.{side}"), V(f"Humerus.{side}"), V(f"Radius.{side}")
     medial = lambda a: a[np.abs(a[:, 0]) < np.median(np.abs(a[:, 0]))]
-    hip = top(medial(fem), .04); knee = (bot(fem, .015) + top(tib, .015)) / 2; ankle = V(f"Talus.{side}").mean(0)
-    sho = top(hum, .03); elb = (bot(hum, .015) + top(V(f"Ulna.{side}"), .02)) / 2; wri = bot(rad, .012)
+    hip = head_centre(fem, .045); knee = (bot(fem, .015) + top(tib, .015)) / 2; ankle = V(f"Talus.{side}").mean(0)
+    sho = head_centre(hum, .035); elb = (bot(hum, .015) + top(V(f"Ulna.{side}"), .02)) / 2; wri = bot(rad, .012)
     m3 = V(f"Third metacarpal bone.{side}"); mcp3 = m3[np.argmax(np.linalg.norm(m3 - wri, axis=1))]
     m2 = V(f"Second metatarsal bone.{side}"); mtp2 = m2[np.argmax(np.linalg.norm(m2 - ankle, axis=1))]
     cla = V(f"Clavicle.{side}"); scj = cla[np.argsort(np.abs(cla[:, 0]))[:40]].mean(0)
@@ -178,6 +183,17 @@ for side, S in (("l", "L"), ("r", "R")):
         for pn, rbn in zip(chain, rbones):
             if pn in PARTS and rbn and rbn in RB:
                 BONE[pn] = rbn
+
+HIPC = {S: Vector(FP2(apply_np(Mp, _hip0[s][None]))[0]) for s, S in (("l", "L"), ("r", "R"))}
+bpy.context.view_layer.objects.active = rig; rig.select_set(True)
+bpy.ops.object.mode_set(mode="EDIT")
+for S, c in HIPC.items():
+    eb = rig.data.edit_bones; old = eb[f"upperleg01.{S}"].head.copy()
+    eb[f"upperleg01.{S}"].head = rig.matrix_world.inverted() @ c
+    if eb.get(f"pelvis.{S}") is not None: eb[f"pelvis.{S}"].tail = rig.matrix_world.inverted() @ c
+    print("SKEL hip joint", S, [round(x, 3) for x in old], "->", [round(x, 3) for x in c])
+bpy.ops.object.mode_set(mode="OBJECT")
+RB = {b.name: (rig.matrix_world @ b.head_local, rig.matrix_world @ b.tail_local) for b in rig.data.bones}
 
 # head: atlas top -> skull vertex onto the rig head bone
 c1top = top(V("Atlas (C1)"), .006); vertex = top(skull, .004)

@@ -43,6 +43,56 @@ const SINGLE = {
   "Suprarenal gland.l": "Надпочечник, левый", "Suprarenal gland.r": "Надпочечник, правый",
   "Body": "Кожа", "Clothes_Sportsuit": "Одежда", "Clothes_Shoes": "Обувь", "Hair": "Волосы"
 };
+// muscles: base names and the "<part> of <muscle>" pattern
+const MUS = {
+  "biceps brachii": "двуглавая мышца плеча", "triceps brachii": "трёхглавая мышца плеча", "biceps femoris": "двуглавая мышца бедра",
+  "deltoid muscle": "дельтовидная мышца", "pectoralis major muscle": "большая грудная мышца", "trapezius muscle": "трапециевидная мышца",
+  "gastrocnemius": "икроножная мышца", "flexor pollicis brevis": "короткий сгибатель большого пальца", "adductor pollicis": "мышца, приводящая большой палец",
+  "masseter": "жевательная мышца", "lateral pterygoid muscle": "латеральная крыловидная мышца", "pronator teres": "круглый пронатор",
+  "extensor carpi ulnaris": "локтевой разгибатель запястья", "flexor carpi ulnaris": "локтевой сгибатель запястья", "flexor digitorum superficialis": "поверхностный сгибатель пальцев",
+  "flexor hallucis brevis": "короткий сгибатель большого пальца стопы", "digastric muscle": "двубрюшная мышца"
+};
+const PART = { "long head": "длинная головка", "short head": "короткая головка", "lateral head": "латеральная головка", "medial head": "медиальная головка",
+  "clavicular part": "ключичная часть", "acromial part": "акромиальная часть", "scapular spinal part": "остистая часть", "descending part": "нисходящая часть",
+  "transverse part": "поперечная часть", "ascending part": "восходящая часть", "clavicular head": "ключичная головка", "sternocostal head": "грудино-рёберная головка",
+  "abdominal part": "брюшная часть", "superficial head": "поверхностная головка", "deep head": "глубокая головка", "humeral head": "плечевая головка", "ulnar head": "локтевая головка",
+  "superficial part": "поверхностная часть", "deep part": "глубокая часть", "oblique head": "косая головка", "transverse head": "поперечная головка",
+  "anterior belly": "переднее брюшко", "posterior belly": "заднее брюшко", "humero-ulnar head": "плечелоктевая головка", "inferior head": "нижняя головка", "superior head": "верхняя головка" };
+const MBASE = {
+  "Gluteus maximus muscle": "Большая ягодичная мышца", "Gluteus medius muscle": "Средняя ягодичная мышца", "Gluteus minimus muscle": "Малая ягодичная мышца",
+  "Rectus femoris muscle": "Прямая мышца бедра", "Vastus lateralis muscle": "Латеральная широкая мышца бедра", "Vastus medialis muscle": "Медиальная широкая мышца бедра",
+  "Vastus intermedius muscle": "Промежуточная широкая мышца бедра", "Sartorius muscle": "Портняжная мышца", "Gracilis muscle": "Тонкая мышца",
+  "Semitendinosus muscle": "Полусухожильная мышца", "Semimembranosus muscle": "Полуперепончатая мышца", "Adductor longus": "Длинная приводящая мышца",
+  "Adductor brevis": "Короткая приводящая мышца", "Adductor magnus": "Большая приводящая мышца", "Pectineus muscle": "Гребенчатая мышца",
+  "Tensor fasciae latae": "Напрягатель широкой фасции", "Iliacus muscle": "Подвздошная мышца", "Psoas major": "Большая поясничная мышца",
+  "Piriformis muscle": "Грушевидная мышца", "Quadratus femoris muscle": "Квадратная мышца бедра", "Obturator externus": "Наружная запирательная мышца",
+  "Superior gemellus muscle": "Верхняя близнецовая мышца", "Inferior gemellus muscle": "Нижняя близнецовая мышца",
+  "Tibialis anterior muscle": "Передняя большеберцовая мышца", "Tibialis posterior muscle": "Задняя большеберцовая мышца", "Soleus muscle": "Камбаловидная мышца",
+  "Fibularis longus muscle": "Длинная малоберцовая мышца", "Fibularis brevis muscle": "Короткая малоберцовая мышца", "Fibularis tertius muscle": "Третья малоберцовая мышца",
+  "Extensor digitorum longus": "Длинный разгибатель пальцев", "Extensor hallucis longus": "Длинный разгибатель большого пальца стопы", "Flexor digitorum longus": "Длинный сгибатель пальцев",
+  "Flexor hallucis longus": "Длинный сгибатель большого пальца стопы", "Popliteus muscle": "Подколенная мышца", "Plantaris muscle": "Подошвенная мышца",
+  "Brachialis muscle": "Плечевая мышца", "Brachioradialis muscle": "Плечелучевая мышца", "Anconeus muscle": "Локтевая мышца", "Supinator": "Мышца-супинатор",
+  "Coracobrachialis muscle": "Клювовидно-плечевая мышца", "Extensor carpi radialis longus": "Длинный лучевой разгибатель запястья", "Extensor carpi radialis brevis": "Короткий лучевой разгибатель запястья",
+  "Flexor carpi radialis": "Лучевой сгибатель запястья", "Palmaris longus muscle": "Длинная ладонная мышца", "Extensor digitorum": "Разгибатель пальцев",
+  "Flexor digitorum profundus": "Глубокий сгибатель пальцев", "Flexor pollicis longus": "Длинный сгибатель большого пальца",
+  "Supraspinatus muscle": "Надостная мышца", "Infraspinatus muscle": "Подостная мышца", "Teres major muscle": "Большая круглая мышца", "Teres minor muscle": "Малая круглая мышца",
+  "Subscapularis muscle": "Подлопаточная мышца", "Latissimus dorsi muscle": "Широчайшая мышца спины", "Rhomboid major muscle": "Большая ромбовидная мышца",
+  "Rhomboid minor muscle": "Малая ромбовидная мышца", "Levator scapulae": "Мышца, поднимающая лопатку", "Serratus anterior muscle": "Передняя зубчатая мышца",
+  "Pectoralis minor muscle": "Малая грудная мышца", "Subclavius muscle": "Подключичная мышца",
+  "Rectus abdominis muscle": "Прямая мышца живота", "External abdominal oblique muscle": "Наружная косая мышца живота", "Internal abdominal oblique muscle": "Внутренняя косая мышца живота",
+  "Transversus abdominis muscle": "Поперечная мышца живота", "Quadratus lumborum muscle": "Квадратная мышца поясницы",
+  "Iliocostalis lumborum muscle": "Подвздошно-рёберная мышца поясницы", "Iliocostalis thoracis muscle": "Подвздошно-рёберная мышца груди", "Longissimus thoracis muscle": "Длиннейшая мышца груди",
+  "Spinalis thoracis muscle": "Остистая мышца груди", "Multifidus lumborum muscle": "Многораздельная мышца (поясница)", "Multifidus thoracis muscle": "Многораздельная мышца (грудь)",
+  "Sternocleidomastoid muscle": "Грудино-ключично-сосцевидная мышца", "Splenius capitis muscle": "Ремённая мышца головы", "Scalenus anterior muscle": "Передняя лестничная мышца",
+  "Scalenus medius muscle": "Средняя лестничная мышца", "Scalenus posterior muscle": "Задняя лестничная мышца", "Temporalis muscle": "Височная мышца", "Platysma": "Подкожная мышца шеи",
+  "External intercostal muscles": "Наружные межрёберные мышцы", "Internal intercostal muscles": "Внутренние межрёберные мышцы"
+};
+function ruMuscle(n) {
+  if (MBASE[n]) return MBASE[n];
+  const m = n.match(/^(.+?) of (.+?)( muscle)?$/i);
+  if (m) { const p = PART[m[1].toLowerCase()], b = MUS[m[2].toLowerCase()] || MUS[(m[2] + " muscle").toLowerCase()]; if (p && b) return b[0].toUpperCase() + b.slice(1) + ", " + p; }
+  return null;
+}
 export function ruName(n) {
   if (!n) return "";
   n = n.replace(/^[MO] /, "");
@@ -51,6 +101,7 @@ export function ruName(n) {
   m = n.match(/^Nucleus pulposus (\w+)-(\w+)$/); if (m) return `Пульпозное ядро диска ${m[1]}–${m[2]}`;
   m = n.match(/^(.*)\.([lr])$/);
   if (m && PAIR[m[1]]) return `${PAIR[m[1]][0]}, ${(PAIR[m[1]][1] === "m" ? SIDEM : SIDE)[m[2]]}`;
+  if (m) { const r = ruMuscle(m[1]); if (r) return `${r} (${m[2] === "l" ? "лев." : "прав."})`; }
   if (m) return `${m[1]} (${m[2] === "l" ? "лев." : "прав."})`;
   return n;
 }

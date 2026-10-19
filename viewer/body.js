@@ -7,6 +7,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
+import { MuscleDrive } from "./muscle-drive.js";
 
 const D2R = Math.PI / 180;
 export const LAYERS = ["clothes", "hair", "skin", "muscles", "organs", "skeleton"];
@@ -93,6 +94,9 @@ export class HumanBody extends EventTarget {
     // anatomical axes: each bone rotates about the body's own axes as they were in the rest pose
     // (X = left-right: flexion/extension, Y = vertical: rotation, Z = front-back: side bend / abduction)
     for (const k in this.bones) { const B = this.bones[k], q = new THREE.Quaternion(); if (B.parent) B.parent.getWorldQuaternion(q); const rq = this.root.getWorldQuaternion(new THREE.Quaternion()).invert(); q.premultiply(rq); B.userData.pr = q.clone(); B.userData.pri = q.clone().invert(); }
+    // bones -> muscles -> skin
+    this.drive = new MuscleDrive(this); this.root.updateMatrixWorld(true);
+    try { this.driveStats = this.drive.setup(); } catch (e) { console.warn("muscle drive off:", e); this.drive = null; }
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
   }
@@ -163,6 +167,7 @@ export class HumanBody extends EventTarget {
       if (!this.layerOn[m.userData.layerName]) { this.layerOn[m.userData.layerName] = true; this.applyLayers(); }
       const mm = m.userData.baseMat.clone(); mm.emissive = new THREE.Color(color); mm.emissiveIntensity = .55; mm.color = new THREE.Color(color).lerp(mm.color, .4);
       mm.depthTest = false; mm.transparent = true; mm.opacity = 1; m.material = mm; this.hl.set(m, mm);   /* seen through the layers above it */
+      if (this.drive && m.userData.layerName === "muscles") this.drive.hookClone(m, mm);
     }
     // a bone under muscles and skin: thin the layers above so its surroundings stay readable
     if (ms.some(m => m.userData.layerName === "skeleton")) { if (this.layerOn.muscles) this.opacity.muscles = Math.min(this.opacity.muscles, .3); if (this.layerOn.skin) this.opacity.skin = Math.min(this.opacity.skin, .15); }
@@ -242,6 +247,7 @@ export class HumanBody extends EventTarget {
     if (this.root) {
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       this._applyPose();
+      if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
     }
     if (this.camTween) {
       const T = this.camTween, u = Math.min(1, (this.t - T.t0) / T.dur), e = u * u * (3 - 2 * u);
@@ -250,7 +256,13 @@ export class HumanBody extends EventTarget {
     this.controls.update(); this.renderer.render(this.scene, this.camera);
   }
   // jump to the end of every running transition (pose and camera) — for scripts, tests and screenshots
-  snap() { for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) this._applyPose(); }
+  muscles({ drive, skin, tension } = {}) {
+    if (!this.drive) return { ok: false, error: "muscle drive unavailable" };
+    if (drive != null) this.drive.enabled = !!drive; if (skin != null) this.drive.skinOn = !!skin; if (tension != null) this.drive.tension = !!tension;
+    return { ok: true, drive: this.drive.enabled, skin: this.drive.skinOn, tension: this.drive.tension };
+  }
+  muscleReport(n) { return this.drive ? this.drive.report(n).map(r => ({ ...r, ru: ruName(r.name) })) : []; }
+  snap() { for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }
   state() { return { pose: Object.fromEntries(POSE_KEYS.map(k => [k, Math.round(this.target[k] * 10) / 10])), layers: { ...this.layerOn }, opacity: { ...this.opacity }, highlighted: [...this.hl.keys()].map(m => m.userData.part) }; }
   listParts(filter) { const out = []; for (const [n, m] of this.parts) if (!filter || m.userData.layerName === filter) out.push({ name: n, ru: ruName(n), layer: m.userData.layerName }); return out; }
 }
