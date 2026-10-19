@@ -9,7 +9,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 
 const D2R = Math.PI / 180;
-export const LAYERS = ["clothes", "hair", "skin", "muscles", "skeleton"];
+export const LAYERS = ["clothes", "hair", "skin", "muscles", "organs", "skeleton"];
 // how each spine/neck movement is shared between the rig's segments (≈ real ranges of motion per region)
 const SPINE = ["spine05", "spine04", "spine03", "spine02", "spine01"], NECK = ["neck01", "neck02", "neck03", "head"];
 const SHARE = {
@@ -54,8 +54,8 @@ export class HumanBody extends EventTarget {
     this.controls.minDistance = .15; this.controls.maxDistance = 12;
     this.pose = Object.fromEntries(POSE_KEYS.map(k => [k, 0])); this.target = { ...this.pose }; this.target.breath = 1;
     this.live = true; this.parts = new Map(); this.layerMeshes = Object.fromEntries(LAYERS.map(l => [l, []]));
-    this.layerOn = { clothes: true, hair: true, skin: true, muscles: false, skeleton: false };
-    this.opacity = { skin: 1, muscles: 1, skeleton: 1, clothes: 1, hair: 1 };
+    this.layerOn = { clothes: true, hair: true, skin: true, muscles: false, organs: false, skeleton: false };
+    this.opacity = { skin: 1, muscles: 1, organs: 1, skeleton: 1, clothes: 1, hair: 1 };
     this.hl = new Map(); this.camTween = null; this.clock = new THREE.Clock(); this.t = 0;
     new ResizeObserver(() => this.resize()).observe(el); this.resize();
     R.domElement.addEventListener("pointerdown", e => (this._down = [e.clientX, e.clientY]));
@@ -78,12 +78,13 @@ export class HumanBody extends EventTarget {
       if (o.isBone) { o.userData.rest = o.quaternion.clone(); }
       if (!o.isMesh) return;
       const ex = o.userData || {}, name = ex.name_orig || o.name, layer = o.name === "Body" ? "skin" : ex.layer === "clothes" || /^Clothes/.test(o.name) ? "clothes"
-        : o.name === "Hair" ? "hair" : ex.layer === "skeleton" ? "skeleton" : ex.layer === "muscles" ? "muscles" : "skin";
+        : o.name === "Hair" ? "hair" : ex.layer === "skeleton" ? "skeleton" : ex.layer === "muscles" ? "muscles" : ex.layer === "organs" ? "organs" : "skin";
       o.userData.part = name; o.userData.layerName = layer; o.frustumCulled = false;
       this.layerMeshes[layer].push(o); this.parts.set(name, o);
       if (layer === "skin" && o.name === "Body") this._skinMaterial(o);
       else if (layer === "skeleton") { o.material = this._mat(o.material, { roughness: .62 }); if (/ligament/i.test(name)) o.userData.alphaK = .45; }   /* ligaments: see the vertebrae through them */
       else if (layer === "muscles") o.material = this._mat(o.material, { roughness: .42, color: 0x9c2b22 });
+      else if (layer === "organs") o.material = this._mat(o.material, { roughness: .38 });
       o.userData.baseMat = o.material;
     });
     this.bones = {}; this.root.traverse(o => { if (o.isBone) this.bones[o.name] = o; });
@@ -113,7 +114,7 @@ export class HumanBody extends EventTarget {
       m.visible = this.layerOn[l] && !m.userData.hidden;
       if (this.hl && this.hl.has(m)) { m.renderOrder = 20; continue; }
       const a = (this.opacity[l] == null ? 1 : this.opacity[l]) * (m.userData.alphaK || 1), mat = m.material;
-      const tr = a < .999; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6; m.renderOrder = { skeleton: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
+      const tr = a < .999; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6; m.renderOrder = { skeleton: 1, organs: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
     }
     for (const n of ["Eyes", "Eyebrows", "Eyelashes", "Teeth", "Tongue"]) { const m = this.parts.get(n); if (m) m.visible = this.layerOn.skin && this.opacity.skin > .5; }
     if (this.skinMat) { const u = this.skinMat.userData.u; u.uHideCloth.value = this.layerOn.clothes ? 1 : 0; u.uHideShoes.value = this.layerOn.clothes ? 1 : 0; }
@@ -123,10 +124,12 @@ export class HumanBody extends EventTarget {
   setOpacity(l, a) { if (l in this.opacity) this.opacity[l] = Math.max(0, Math.min(1, a)); this.applyLayers(); }
   // peel down to one depth: dressed | skin | muscles | skeleton | xray (skin ghosted over muscles over bones)
   peel(depth) {
-    const P = { dressed: [1, 1, 1, 0, 0], skin: [0, 1, 1, 0, 0], muscles: [0, 0, 0, 1, 0], skeleton: [0, 0, 0, 0, 1], xray: [0, 0, 1, 1, 1], muscles_bones: [0, 0, 0, 1, 1] }[depth];
+    // order: clothes, hair, skin, muscles, organs, skeleton
+    const P = { dressed: [1, 1, 1, 0, 0, 0], skin: [0, 1, 1, 0, 0, 0], muscles: [0, 0, 0, 1, 0, 0], skeleton: [0, 0, 0, 0, 0, 1], xray: [0, 0, 1, 1, 0, 1],
+      muscles_bones: [0, 0, 0, 1, 0, 1], organs: [0, 0, 1, 0, 1, 1], organs_only: [0, 0, 0, 0, 1, 0] }[depth];
     if (!P) throw new Error("unknown depth " + depth);
     LAYERS.forEach((l, i) => (this.layerOn[l] = !!P[i]));
-    this.opacity.skin = depth === "xray" ? .18 : 1; this.opacity.muscles = depth === "xray" ? .45 : depth === "muscles_bones" ? .55 : 1;
+    this.opacity.skin = depth === "xray" ? .18 : depth === "organs" ? .14 : 1; this.opacity.muscles = depth === "xray" ? .45 : depth === "muscles_bones" ? .55 : 1;
     this.applyLayers();
   }
 
@@ -142,7 +145,11 @@ export class HumanBody extends EventTarget {
     const groups = { "позвоночник": /^(Vertebra|Atlas|Axis|Sacrum|Coccyx|Intervertebral disc)/, spine: /^(Vertebra|Atlas|Axis|Sacrum|Coccyx|Intervertebral disc)/,
       "поясничный": /^Vertebra L|disc (L|T12-L)/, lumbar: /^Vertebra L|disc (L|T12-L)/, "грудной": /^Vertebra T|disc T/, thoracic: /^Vertebra T|disc T/,
       "шейный": /^(Vertebra C|Atlas|Axis)|disc C/, cervical: /^(Vertebra C|Atlas|Axis)|disc C/, "рёбра": / rib\.[lr]$/, ribs: / rib\.[lr]$/, "диски": /disc/, discs: /disc/,
-      "таз": /^(Hip bone|Sacrum|Coccyx)/, pelvis: /^(Hip bone|Sacrum|Coccyx)/, "череп": /(Frontal|Parietal|Occipital|Temporal|Sphenoid|Ethmoid) bone|Mandible|Maxilla|Zygomatic/, skull: /(Frontal|Parietal|Occipital|Temporal|Sphenoid|Ethmoid) bone|Mandible|Maxilla|Zygomatic/ };
+      "таз": /^(Hip bone|Sacrum|Coccyx)/, pelvis: /^(Hip bone|Sacrum|Coccyx)/,
+      "органы": /lung|Trachea|atrium|ventricle|Pulmonary trunk|Oesophagus|Stomach|Duodenum|Jejunum|colon|appendix|Liver|Gallbladder|Pancreas|Spleen|bladder|Suprarenal/, organs: /lung|Trachea|atrium|ventricle|Pulmonary trunk|Oesophagus|Stomach|Duodenum|Jejunum|colon|appendix|Liver|Gallbladder|Pancreas|Spleen|bladder|Suprarenal/,
+      "лёгкие": /lobe of (left|right) lung/, "легкие": /lobe of (left|right) lung/, lungs: /lobe of (left|right) lung/,
+      "сердце": /^(Right|Left) (atrium|ventricle)$|Pulmonary trunk/, heart: /^(Right|Left) (atrium|ventricle)$|Pulmonary trunk/,
+      "кишечник": /Duodenum|Jejunum|colon|appendix/, intestines: /Duodenum|Jejunum|colon|appendix/, "череп": /(Frontal|Parietal|Occipital|Temporal|Sphenoid|Ethmoid) bone|Mandible|Maxilla|Zygomatic/, skull: /(Frontal|Parietal|Occipital|Temporal|Sphenoid|Ethmoid) bone|Mandible|Maxilla|Zygomatic/ };
     if (groups[s]) { for (const [n, m] of this.parts) if (groups[s].test(n)) out.push(m); return out; }
     for (const [n, m] of this.parts) if (n.toLowerCase() === s || ruName(n).toLowerCase() === s) return [m];
     for (const [n, m] of this.parts) if (n.toLowerCase().includes(s) || ruName(n).toLowerCase().includes(s)) out.push(m);

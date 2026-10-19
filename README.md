@@ -2,7 +2,7 @@
 
 Женская 3D-модель взрослого человека (1,75 м) с настоящей анатомией внутри. Модель можно переодевать и снимать слои, гнуть позвоночник по отделам и управлять ею JSON-командами, обычными фразами или любой ИИ через tool calling.
 
-- **Слои:** одежда → кожа → мышцы (665) → скелет (305 частей). Есть все позвонки C1–L5, крестец и копчик, 23 межпозвонковых диска с пульпозными ядрами и связки позвоночника.
+- **Слои:** одежда → кожа → мышцы (665) → органы (26) → скелет (305 частей). Есть все позвонки C1–L5, крестец и копчик, 23 межпозвонковых диска с пульпозными ядрами и связки позвоночника.
 - **Живая модель:** скелет для анимации из 163 костей (5 сегментов позвоночника, 3 шейных, кисти, стопы, лицо).
   - Кости и мышцы привязаны к нему и двигаются вместе с кожей.
   - Наклон, прогиб, наклон вбок и скручивание делятся между отделами позвоночника так, как они делятся у человека.
@@ -54,7 +54,7 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 | `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow`; `amount` 0..1 | `{"op":"pose","preset":"squat","amount":0.7}` |
 | `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise` | `{"op":"set","spineFlex":30,"neckTwist":-20}` |
 | `bend` | согнуть один отдел: `lumbar`, `thoracic`, `cervical` | `{"op":"bend","region":"lumbar","flex":25}` |
-| `peel` | глубина: `dressed, skin, muscles, muscles_bones, skeleton, xray` | `{"op":"peel","to":"xray"}` |
+| `peel` | глубина: `dressed, skin, muscles, muscles_bones, skeleton, xray, organs, organs_only` | `{"op":"peel","to":"organs"}` |
 | `layers` / `opacity` | слои по отдельности и их прозрачность | `{"op":"opacity","layer":"skin","value":0.2}` |
 | `highlight` / `clear` | подсветить часть или группу (видна сквозь слои над ней) | `{"op":"highlight","part":"поясничный"}` |
 | `focus` | навести камеру на часть | `{"op":"focus","part":"Femur.l"}` |
@@ -70,7 +70,7 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 - по точному имени (`Vertebra T7`);
 - по русскому имени (`Бедренная кость, левая`);
 - по коду позвонка (`L4`) и диска (`L4-L5`);
-- по группе: `позвоночник, шейный, грудной, поясничный, рёбра, диски, таз, череп`.
+- по группе: `позвоночник, шейный, грудной, поясничный, рёбра, диски, таз, череп, органы, лёгкие, сердце, кишечник`.
 
 ## Как собрана модель (`tools/`)
 
@@ -79,7 +79,8 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 blender -b --factory-startup --python tools/build_body.py -- out/body.blend      # тело MPFB2: женщина, скелет default, одежда, волосы
 blender -b out/body.blend --python tools/build_skeleton.py                       # скелет Z-Anatomy внутри тела, привязка к костям
 blender -b out/anatomy.blend --python tools/build_muscles.py -- 0.25             # мышцы: деформация по костям, внутрь кожи, веса с кожи
-blender -b out/anatomy_m.blend --python tools/export_all.py -- viewer/human.glb --draco
+blender -b out/anatomy_m.blend --python tools/build_organs.py -- 0.35            # органы тем же способом, плавнее по костям
+blender -b out/anatomy_mo.blend --python tools/export_all.py -- viewer/human.glb --draco
 ```
 Нужны:
 - MPFB2 (расширение Blender) с пакетом `makehuman_system_assets_cc0`;
@@ -113,7 +114,11 @@ blender -b out/anatomy_m.blend --python tools/export_all.py -- viewer/human.glb 
 **Что пока приблизительно:**
 - Женская форма таза и грудной клетки получена деформацией мужского образца по средним соотношениям, а не со сканов женщин. Межгребневый размер и конъюгату дальше не пускает кожа этого тела.
 - Кисти и стопы двигаются целиком, фаланги отдельно пока не сгибаются.
-- Органов пока нет. Они есть в Z-Anatomy и добавляются тем же способом.
+- **Органы:** лёгкие по долям, трахея, сердце (4 камеры, лёгочный ствол), пищевод, желудок, двенадцатиперстная и тощая кишка, ободочная кишка, аппендикс, печень, желчный пузырь, поджелудочная железа, селезёнка, мочевой пузырь, надпочечники.
+  - Органы тоже сняты с мужского образца и подогнаны к телу.
+  - Почек нет: в Z-Anatomy почка взята из модели под некоммерческой лицензией (CC BY-NC).
+  - Женских внутренних половых органов в исходной сборке Z-Anatomy нет.
+  - Не включены сигмовидная кишка (её сетка ломается при подгонке в тазу), щитовидная железа и мозг: лицензия модели мозга в Z-Anatomy не указана явно.
 
 ## Лицензии
 

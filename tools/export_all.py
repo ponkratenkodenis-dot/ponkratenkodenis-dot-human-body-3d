@@ -32,7 +32,7 @@ for o in bpy.data.objects:
                 o.modifiers.remove(m)
         if o.get("layer") in ("skeleton", "muscles", "organs") and len(o.data.materials) > 1:
             keep = o.data.materials[len(o.data.materials) - 1]; o.data.materials.clear(); o.data.materials.append(keep)
-        o["name_orig"] = o.name[2:] if o.name.startswith("M ") else o.name
+        o["name_orig"] = o.name[2:] if o.name[:2] in ("M ", "O ") else o.name
         o["layer"] = o.get("layer", "skin" if o.name == "Body" else "clothes" if o.name.startswith("Body.female") or o.name.startswith("Body.shoes") else "body")
 
 if "Skin" not in bpy.data.materials:

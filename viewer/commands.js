@@ -8,9 +8,9 @@ export const COMMANDS = {
   set:       { desc: "Точная поза в градусах. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево.", args: { "<key>": "number" } },
   bend:      { desc: "Согнуть один отдел позвоночника. region: lumbar | thoracic | cervical; flex/side/twist в градусах.", args: { region: "string", flex: "number?", side: "number?", twist: "number?" } },
   layers:    { desc: "Показать/скрыть слои: " + LAYERS.join(", ") + ". show/hide — списки.", args: { show: "string[]?", hide: "string[]?" } },
-  peel:      { desc: "Снять слои до глубины: dressed | skin | muscles | skeleton | muscles_bones | xray.", args: { to: "string" } },
+  peel:      { desc: "Снять слои до глубины: dressed | skin | muscles | skeleton | muscles_bones | xray | organs (органы в прозрачной коже со скелетом) | organs_only.", args: { to: "string" } },
   opacity:   { desc: "Прозрачность слоя 0..1.", args: { layer: "string", value: "number" } },
-  highlight: { desc: "Подсветить часть: имя (Vertebra L4, Femur.l), русское имя, «L4», «L4-L5» (диск) или группа: позвоночник, поясничный, грудной, шейный, рёбра, диски, таз, череп.", args: { part: "string", color: "string?" } },
+  highlight: { desc: "Подсветить часть: имя (Vertebra L4, Femur.l), русское имя, «L4», «L4-L5» (диск) или группа: позвоночник, поясничный, грудной, шейный, рёбра, диски, таз, череп, органы, лёгкие, сердце, кишечник.", args: { part: "string", color: "string?" } },
   clear:     { desc: "Снять подсветку.", args: {} },
   focus:     { desc: "Навести камеру на часть тела.", args: { part: "string" } },
   hide:      { desc: "Скрыть отдельную часть (или show:true — вернуть).", args: { part: "string", show: "boolean?" } },
@@ -98,6 +98,10 @@ export class Commander {
     if (/рентген|x-?ray|насквозь/.test(t)) out.push({ op: "peel", to: "xray" });
     if (/мышц|muscle/.test(t) && /покаж|show|до/.test(t)) out.push({ op: "peel", to: "muscles" });
     if (/скелет|кост|skeleton|bones/.test(t) && /покаж|show|до|только/.test(t)) out.push({ op: "peel", to: "skeleton" });
+    if (/орган|organ|сердц|лёгк|легк|печен|желуд|кишеч/.test(t)) out.push({ op: "peel", to: "organs" });
+    const org = (t.match(/сердц\w*|лёгки\w*|легки\w*|печен\w*|желуд\w*|кишечн\w*|селезён\w*|селезен\w*|мочев\w* пузыр\w*|поджелудочн\w*/) || [])[0];
+    if (org) { const map = { "сердц": "сердце", "лёгк": "лёгкие", "легк": "лёгкие", "печен": "Печень", "желуд": "Желудок", "кишечн": "кишечник", "селезён": "Селезёнка", "селезен": "Селезёнка", "мочев": "Мочевой пузырь", "поджелудочн": "Поджелудочная железа" };
+      const key = Object.keys(map).find(k => org.startsWith(k)); if (key) { out.push({ op: "highlight", part: map[key] }); out.push({ op: "focus", part: map[key] }); } }
     if (/наклон\w* вперёд|наклон\w* вперед|forward bend|согни\w* вперёд/.test(t)) out.push({ op: "pose", preset: "forward_bend", amount: n ? Math.min(1, n / 90) : 1 });
     else if (/прогн|назад|back bend/.test(t)) out.push({ op: "pose", preset: "back_bend" });
     else if (/вбок|в сторону/.test(t)) out.push({ op: "pose", preset: /лев|left/.test(t) ? "side_bend_left" : "side_bend_right" });

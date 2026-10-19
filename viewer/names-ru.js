@@ -34,11 +34,18 @@ const SINGLE = {
   "Frontal bone": "Лобная кость", "Occipital bone": "Затылочная кость", "Sphenoid bone": "Клиновидная кость",
   "Anterior longitudinal ligament": "Передняя продольная связка", "Posterior longitudinal ligament": "Задняя продольная связка",
   "Ligamenta flava": "Жёлтые связки", "Interspinous ligaments": "Межостистые связки", "Nuchal ligament": "Выйная связка",
+  "Superior lobe of right lung": "Верхняя доля правого лёгкого", "Middle lobe of right lung": "Средняя доля правого лёгкого", "Inferior lobe of right lung": "Нижняя доля правого лёгкого",
+  "Superior lobe of left lung": "Верхняя доля левого лёгкого", "Inferior lobe of left lung": "Нижняя доля левого лёгкого", "Trachea": "Трахея",
+  "Right atrium": "Правое предсердие", "Left atrium": "Левое предсердие", "Right ventricle": "Правый желудочек", "Left ventricle": "Левый желудочек", "Pulmonary trunk": "Лёгочный ствол",
+  "Oesophagus": "Пищевод", "Stomach": "Желудок", "Duodenum": "Двенадцатиперстная кишка", "Jejunum": "Тонкая кишка (тощая)", "Ascending colon": "Восходящая ободочная кишка",
+  "Transverse colon": "Поперечная ободочная кишка", "Descending colon": "Нисходящая ободочная кишка", "Vermiform appendix": "Червеобразный отросток (аппендикс)",
+  "Liver": "Печень", "Gallbladder": "Желчный пузырь", "Pancreas": "Поджелудочная железа", "Spleen": "Селезёнка", "Urinary bladder": "Мочевой пузырь",
+  "Suprarenal gland.l": "Надпочечник, левый", "Suprarenal gland.r": "Надпочечник, правый",
   "Body": "Кожа", "Clothes_Sportsuit": "Одежда", "Clothes_Shoes": "Обувь", "Hair": "Волосы"
 };
 export function ruName(n) {
   if (!n) return "";
-  n = n.replace(/^M /, "");
+  n = n.replace(/^[MO] /, "");
   if (V[n]) return V[n]; if (RIB[n]) return RIB[n]; if (SINGLE[n]) return SINGLE[n];
   let m = n.match(/^Intervertebral disc (\w+)-(\w+)$/); if (m) return `Межпозвонковый диск ${m[1]}–${m[2]}`;
   m = n.match(/^Nucleus pulposus (\w+)-(\w+)$/); if (m) return `Пульпозное ядро диска ${m[1]}–${m[2]}`;

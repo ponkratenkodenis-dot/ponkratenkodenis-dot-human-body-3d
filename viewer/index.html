@@ -1,10 +1,4 @@
-<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-</head>
-<body>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>
 <title>Анатомия Ева</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -107,6 +101,7 @@ code,.mono{font-family:var(--f-mono)}
           <button class="chip" data-peel="muscles_bones">Мышцы и кости</button>
           <button class="chip" data-peel="skeleton">Скелет</button>
           <button class="chip" data-peel="xray">Рентген</button>
+          <button class="chip" data-peel="organs">Органы</button>
         </div></div>
       <div class="group" id="layerRows"><span class="label">Слои и прозрачность</span></div>
       <p class="hint">Нажмите на любую часть тела, чтобы узнать, что это. Вращайте модель пальцем или мышью, колесом и щипком приближайте.</p>
@@ -139,7 +134,7 @@ code,.mono{font-family:var(--f-mono)}
   <div class="card" id="card" hidden><h2 id="cardName"></h2><p id="cardSub"></p><div class="acts"><button class="chip" id="cardFocus">Приблизить</button><button class="chip" id="cardClear">Снять выделение</button></div></div>
   <div class="viewbar"><button class="chip" data-view="front">Спереди</button><button class="chip" data-view="left">Сбоку</button><button class="chip" data-view="back">Сзади</button><button class="chip" id="reset">Сброс</button></div>
   <div class="credits">Тело: <a href="https://static.makehumancommunity.org/" target="_blank" rel="noopener">MakeHuman/MPFB2</a> (CC0) · Анатомия: <a href="https://github.com/Z-Anatomy/Models-of-human-anatomy" target="_blank" rel="noopener">Z-Anatomy</a> на основе BodyParts3D, CC BY-SA 4.0</div>
-  <div class="loading" id="loading"><div>Загружаю модель<span class="bar"><i id="prog"></i></span><span class="hint" id="loadNote">12 МБ: кожа, 305 костей, 665 мышц</span></div></div>
+  <div class="loading" id="loading"><div>Загружаю модель<span class="bar"><i id="prog"></i></span><span class="hint" id="loadNote">13 МБ: кожа, 305 костей, 665 мышц, 26 органов</span></div></div>
 </div>
 
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
@@ -168,7 +163,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
 });
 
 /* layers */
-const LNAME = { clothes: "Одежда", hair: "Волосы", skin: "Кожа", muscles: "Мышцы", skeleton: "Скелет" };
+const LNAME = { clothes: "Одежда", hair: "Волосы", skin: "Кожа", muscles: "Мышцы", organs: "Органы", skeleton: "Скелет" };
 for (const l of LAYERS) {
   const r = document.createElement("div"); r.className = "layer";
   r.innerHTML = `<input type="checkbox" id="ly-${l}"><label for="ly-${l}">${LNAME[l]}</label><input type="range" id="op-${l}" min="0" max="1" step=".05" aria-label="Прозрачность: ${LNAME[l]}">`;
@@ -216,7 +211,7 @@ for (const [rk, name] of [["lumbar", "Поясничный"], ["thoracic", "Гр
 function show(info) {
   if (!info) { $("card").hidden = true; return; }
   $("card").hidden = false; $("cardName").textContent = info.ru;
-  const LN = { skin: "кожа", muscles: "мышцы", skeleton: "скелет", clothes: "одежда", hair: "волосы" };
+  const LN = { skin: "кожа", muscles: "мышцы", organs: "органы", skeleton: "скелет", clothes: "одежда", hair: "волосы" };
   $("cardSub").textContent = (info.ru !== info.name ? info.name + " · " : "") + "слой: " + (LN[info.layer] || info.layer);
   $("cardFocus").onclick = () => body.focus(info.name, 3);
 }
@@ -267,5 +262,4 @@ try {
 } catch (e) { $("loadNote").textContent = "Не удалось загрузить модель: " + (e.message || e); }
 </script>
 
-</body>
-</html>
+</body></html>
