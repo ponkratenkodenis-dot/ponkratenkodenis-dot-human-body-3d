@@ -37,6 +37,11 @@
   - Мышцы, которые прикрепляются к лучевой кости, при повороте наматываются на неё, как верёвка на барабан: длина меняется на (радиус кости) × (угол). Сторону намотки задаёт место прикрепления и сторона, по которой идёт брюшко. Пронация 75°: квадратный пронатор −41%, круглый пронатор −22%, супинатор +15%, бицепс +8%. Супинация 110°: супинатор −21%, пронаторы растянуты.
   - Пальцы разводятся в стороны (указательный, безымянный, мизинец от среднего).
   - Поза `anatomical` теперь настоящая анатомическая стойка: руки прямые, ладони вперёд, большие пальцы наружу.
+- **Лицо:** нижняя челюсть открывается в височно-нижнечелюстном суставе вместе с нижней челюстью скелета, зубами и мышцами. Веки закрываются, взгляд переводится, уголки рта и брови двигаются. 10 выражений.
+  - В живом режиме модель моргает примерно раз в 4 секунды.
+  - В улыбке поднимаются и нижние веки, как в настоящей улыбке.
+  - При открытом рте жевательная и височная мышцы растягиваются (синие), мышцы под челюстью укорачиваются.
+  - Выражение и жест кистей сохраняются при смене позы тела.
 - **Масштаб любой:** `scale` от значка до полного экрана; 1 = 1,75 м, единицы — метры.
 
 Кожа без раздевания нейтральная, как учебный манекен: без текстуры и без анатомической детализации интимных зон. Это вид для уроков, медицины и публичных проектов.
@@ -78,6 +83,7 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 |---|---|---|
 | `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow, tiptoe`; `amount` 0..1. Жест кистей при смене позы сохраняется | `{"op":"pose","preset":"squat","amount":0.7}` |
 | `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise, wristLFlex, wristRFlex, ankleL, ankleR, toesL, toesR, forearmL, forearmR`; пальцы рук `thumbL, indexL, middleL, ringL, littleL` (и с `R`) — сгибание 0..1; `spreadL, spreadR` — развести пальцы 0..1 | `{"op":"set","forearmL":-110,"spreadL":1}` |
+| `face` | выражение лица: `neutral, smile, laugh, surprise, sad, angry, blink, wink_left, wink_right, mouth_open`; `amount` 0..1. Точно через `set`: `jawOpen` (градусы), `smile` (−1..1), `brows` (−1..1), `blinkL`/`blinkR` (0..1), `lookX`/`lookY` (градусы, плюс — влево от модели / вверх) | `{"op":"face","expression":"surprise"}` |
 | `hand` | жест: `open, spread, relaxed, fist, point, thumbs_up, ok, peace, pinch, grip`; `side`: `left, right, both` | `{"op":"hand","gesture":"ok","side":"right"}` |
 | `bend` | согнуть один отдел: `lumbar`, `thoracic`, `cervical` | `{"op":"bend","region":"lumbar","flex":25}` |
 | `peel` | глубина: `dressed, skin, muscles, muscles_bones, skeleton, xray, organs, organs_only` | `{"op":"peel","to":"organs"}` |

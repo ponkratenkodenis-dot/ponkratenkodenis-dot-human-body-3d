@@ -25,9 +25,19 @@ const REGION = { lumbar: ["spine05", "spine04", "spine03"], thoracic: ["spine02"
 export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "neckSide", "neckTwist", "hipFlex",
   "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
   "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR", "forearmL", "forearmR", "spreadL", "spreadR",
-  "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "breath"];
+  "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR",
+  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "breath"];
+// face keys are kept too when a whole-body preset is chosen
+export const FACE_KEYS = ["jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY"];
+// expressions: jaw opening (deg), smile (+ corners up and out, - down), brows (+ up, - down and together), blinks 0..1
+export const EXPRESSIONS = {
+  neutral: {}, smile: { smile: .7 }, laugh: { smile: 1, jawOpen: 12, blinkL: .25, blinkR: .25 }, surprise: { brows: 1, jawOpen: 16, blinkL: -.4, blinkR: -.4 },
+  sad: { smile: -.8, brows: .35, blinkL: .2, blinkR: .2 }, angry: { brows: -1, smile: -.3, blinkL: .15, blinkR: .15 },
+  blink: { blinkL: 1, blinkR: 1 }, wink_left: { blinkL: 1, smile: .3 }, wink_right: { blinkR: 1, smile: .3 }, mouth_open: { jawOpen: 20 }
+};
 // hand keys are kept when a whole-body preset is chosen (a fist stays a fist while the body squats)
-export const HAND_KEYS = ["thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "wristLFlex", "wristRFlex", "spreadL", "spreadR"];
+export const HAND_KEYS0 = ["thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "wristLFlex", "wristRFlex", "spreadL", "spreadR"];
+export const HAND_KEYS = [...HAND_KEYS0, ...FACE_KEYS];
 export const FINGERS = ["thumb", "index", "middle", "ring", "little"];
 // gestures: curl of thumb, index, middle, ring, little; then how far the fingers are spread (0..1)
 export const GESTURES = {
@@ -109,7 +119,8 @@ export class HumanBody extends EventTarget {
     this.root.updateMatrixWorld(true); this._footRest = this._footPos();
     // anatomical axes: each bone rotates about the body's own axes as they were in the rest pose
     // (X = left-right: flexion/extension, Y = vertical: rotation, Z = front-back: side bend / abduction)
-    for (const k in this.bones) { const B = this.bones[k], q = new THREE.Quaternion(); if (B.parent) B.parent.getWorldQuaternion(q); const rq = this.root.getWorldQuaternion(new THREE.Quaternion()).invert(); q.premultiply(rq); B.userData.pr = q.clone(); B.userData.pri = q.clone().invert(); }
+    for (const k in this.bones) { const B = this.bones[k], q = new THREE.Quaternion(); if (B.parent) B.parent.getWorldQuaternion(q); const rq = this.root.getWorldQuaternion(new THREE.Quaternion()).invert(); q.premultiply(rq); B.userData.pr = q.clone(); B.userData.pri = q.clone().invert();
+      B.userData.restPos = B.position.clone(); B.userData.ps = B.parent ? B.parent.getWorldScale(new THREE.Vector3()).x / this.root.getWorldScale(new THREE.Vector3()).x : 1; }
     this._setupExtremities();
     // bones -> muscles -> skin
     this.drive = new MuscleDrive(this); this.root.updateMatrixWorld(true);
@@ -180,6 +191,16 @@ export class HumanBody extends EventTarget {
   _rotAx(b, axis, deg) {
     const B = this.bones[b]; if (!B || !axis || !deg) return;
     this._q.setFromAxisAngle(axis, deg * D2R); this._q2.copy(B.userData.pri).multiply(this._q).multiply(B.userData.pr); B.quaternion.premultiply(this._q2);
+  }
+  // move a bone by a vector given in the body's frame of the rest pose (metres)
+  _move(b, x, y, z) {
+    const B = this.bones[b]; if (!B || !(x || y || z)) return;
+    B.position.add(new THREE.Vector3(x, y, z).applyQuaternion(B.userData.pri).multiplyScalar(1 / (B.userData.ps || 1)));
+  }
+  // facial expression: neutral, smile, laugh, surprise, sad, angry, blink, wink_left, wink_right, mouth_open
+  expression(name, amount = 1) {
+    const E = EXPRESSIONS[name]; if (!E) throw new Error("unknown expression " + name);
+    const o = {}; for (const k of FACE_KEYS) o[k] = (E[k] || 0) * amount; this.setPose(o); return o;
   }
   // gesture for one or both hands: open, relaxed, fist, point, thumbs_up, ok, peace, pinch, grip
   gesture(name, side = "both", amount = 1) {
@@ -320,7 +341,7 @@ export class HumanBody extends EventTarget {
   }
   _applyPose() {
     const P = this.pose; this._e = this._e || new THREE.Euler(); this._q = this._q || new THREE.Quaternion(); this._q2 = this._q2 || new THREE.Quaternion();
-    for (const k in this.bones) { const B = this.bones[k]; if (B.userData.rest) B.quaternion.copy(B.userData.rest); }
+    for (const k in this.bones) { const B = this.bones[k]; if (B.userData.rest) B.quaternion.copy(B.userData.rest); if (B.userData.restPos && k !== "root") B.position.copy(B.userData.restPos); }
     const br = P.breath * (this.live ? Math.sin(this.t * 1.6) : 0);
     // trunk: hip hinge at the pelvis, then the spine segment by segment, then the neck
     this._rot("root", P.hipFlex, 0, 0);
@@ -328,6 +349,7 @@ export class HumanBody extends EventTarget {
     if (this.regionBend) for (const r in this.regionBend) { const rb = this.regionBend[r], segs = REGION[r] || []; for (const s of segs) this._rot(s, rb.flex / segs.length, rb.twist / segs.length, rb.side / segs.length); }
     for (const s of NECK) this._rot(s, P.neckFlex * (SHARE.nflex[s] || 0) + (s === "neck01" ? br * .6 : 0), P.neckTwist * (SHARE.ntwist[s] || 0), P.neckSide * (SHARE.nside[s] || 0));
     this._rot("clavicleL", 0, 0, -br * .5); this._rot("clavicleR", 0, 0, br * .5);
+    this._face(P);
     // legs: undo the hip hinge so they stay upright, then hip flexion/abduction, knee, and a foot that stays flat
     for (const [S, K, A] of [["L", P.kneeL, P.hipLRaise], ["R", P.kneeR, P.hipRRaise]]) {
       const th = K * .75;
@@ -368,6 +390,23 @@ export class HumanBody extends EventTarget {
     const w = Math.min(1, Math.max(0, Math.max(P.ankleL, P.ankleR) / 15)), f = this._footPos(), rest = this._footRest.clone();
     if (w > 0 && this._ballRest) { f.lerp(this._ballPos(), w); rest.lerp(this._ballRest, w); }
     this.root.position.set(rest.x - f.x, rest.y - f.y, rest.z - f.z);
+  }
+  // face: the jaw turns about the jaw joint; eyelids turn about the eye centre; mouth corners and brows are moved
+  // (millimetres, in the body frame: x to the body's left, y up, z forward); the eyes turn for the gaze
+  _face(P) {
+    const sm = P.smile, up = Math.max(0, sm), dn = Math.max(0, -sm), bw = P.brows, bu = Math.max(0, bw), bd = Math.max(0, -bw);
+    const t = this.t, auto = this.live ? Math.max(0, 1 - Math.abs(((t % 4.3) - 4.15) / .09)) : 0;      // a natural blink every ~4 s
+    this._rot("jaw", P.jawOpen, 0, 0);
+    for (const [S, sg] of [["L", 1], ["R", -1]]) {
+      const bl = Math.min(1, P["blink" + S] + auto);
+      this._rot("orbicularis03" + S, bl * 34, 0, 0); this._rot("orbicularis04" + S, -bl * 6 - up * 7, 0, 0);   // upper lid down; lower lid up (also in a real smile)
+      for (const c of ["oris03" + S, "oris07" + S]) this._move(c, sg * (.009 * up + .002 * dn), .008 * up - .007 * dn, -.004 * up);
+      this._move("risorius03" + S, sg * .006 * up, .006 * up - .003 * dn, -.002 * up);
+      this._move("levator05" + S, sg * .002 * up, .004 * up, 0);
+      this._move("oculi01" + S, -sg * .003 * bd, .005 * bu - .003 * bd, .001 * bu);                           // brows: up, or down and together
+      this._move("oculi02" + S, 0, .004 * bu - .002 * bd, 0);
+      this._rot("eye" + S, -P.lookY, P.lookX, 0);
+    }
   }
   frame() {
     const dt = Math.min(.05, this.clock.getDelta()); this.t += dt;

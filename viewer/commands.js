@@ -1,11 +1,12 @@
 // Command layer: every action on the body is a small JSON object, so any AI (or a script, or a button) can drive it.
 // run(cmd) accepts one command, an array of commands, a JSON string, or a short Russian/English phrase.
-import { PRESETS, POSE_KEYS, LAYERS, GESTURES, FINGERS } from "./body.js";
+import { PRESETS, POSE_KEYS, LAYERS, GESTURES, FINGERS, EXPRESSIONS } from "./body.js";
 import { VERTEBRAE } from "./names-ru.js";
 
 export const COMMANDS = {
   pose:      { desc: "Готовая поза. preset: " + Object.keys(PRESETS).join(", ") + "; amount 0..1 (насколько сильно).", args: { preset: "string", amount: "number?" } },
   set:       { desc: "Точная поза. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Градусы, кроме пальцев рук. Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево; ankleL/R плюс = носок вниз; forearmL/R — поворот предплечья: плюс = ладонью вниз/назад (пронация), минус = ладонью вверх/вперёд (супинация), 0 = исходное положение, -120 = ладони вперёд при опущенных руках; spreadL/R 0..1 — развести пальцы; toesL/R плюс = пальцы стопы поджаты, минус = подняты; wristLFlex/wristRFlex плюс = кисть к ладони. Пальцы рук (thumbL, indexL, middleL, ringL, littleL и то же с R) — степень сгибания 0..1 (1 = в кулак).", args: { "<key>": "number" } },
+  face:      { desc: "Выражение лица. expression: " + Object.keys(EXPRESSIONS).join(", ") + "; amount 0..1. Точно через set: jawOpen (градусы), smile (-1..1), brows (-1..1), blinkL/blinkR (0..1), lookX/lookY (градусы взгляда: плюс = влево от модели / вверх).", args: { expression: "string", amount: "number?" } },
   hand:      { desc: "Жест кистью. gesture: " + Object.keys(GESTURES).join(", ") + "; side: left | right | both; amount 0..1.", args: { gesture: "string", side: "string?", amount: "number?" } },
   bend:      { desc: "Согнуть один отдел позвоночника. region: lumbar | thoracic | cervical; flex/side/twist в градусах.", args: { region: "string", flex: "number?", side: "number?", twist: "number?" } },
   layers:    { desc: "Показать/скрыть слои: " + LAYERS.join(", ") + ". show/hide — списки.", args: { show: "string[]?", hide: "string[]?" } },
@@ -46,7 +47,7 @@ export const TOOL = {
             show: {}, hide: { type: "array", items: { type: "string" } }, to: { type: "string" },
             layer: { type: "string" }, value: { type: "number" }, part: { type: "string" }, color: { type: "string" },
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
-            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
+            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
           required: ["op"]
@@ -66,6 +67,7 @@ export class Commander {
     const b = this.b, op = c.op;
     switch (op) {
       case "pose": b.preset(c.preset, c.amount == null ? 1 : c.amount); return { ok: true, pose: c.preset };
+      case "face": return { ok: true, set: b.expression(c.expression, c.amount == null ? 1 : c.amount) };
       case "hand": return { ok: true, set: b.gesture(c.gesture, c.side || "both", c.amount == null ? 1 : c.amount) };
       case "set": { const p = {}; for (const k of POSE_KEYS) if (k in c) p[k] = c[k]; b.setPose(p); return { ok: true, set: p }; }
       case "bend": b.bendRegion(c.region, c); return { ok: true };
@@ -131,6 +133,17 @@ export class Commander {
     const fs = side === "left" ? ["L"] : side === "right" ? ["R"] : ["L", "R"];
     if (/ладон[\wа-яё]* (вверх|вперёд|вперед)|супинац|palms? (up|forward)/.test(t)) out.push({ op: "set", ...Object.fromEntries(fs.map(S => ["forearm" + S, -110])) });
     else if (/ладон[\wа-яё]* (вниз|назад)|пронац|palms? (down|back)/.test(t)) out.push({ op: "set", ...Object.fromEntries(fs.map(S => ["forearm" + S, 60])) });
+    if (/улыб|smile/.test(t)) out.push({ op: "face", expression: "smile" });
+    else if (/смей|смех|laugh/.test(t)) out.push({ op: "face", expression: "laugh" });
+    else if (/удив|surpris/.test(t)) out.push({ op: "face", expression: "surprise" });
+    else if (/грус|печал|sad/.test(t)) out.push({ op: "face", expression: "sad" });
+    else if (/зл[иоа]|сердит|angry/.test(t)) out.push({ op: "face", expression: "angry" });
+    else if (/подмигн|wink/.test(t)) out.push({ op: "face", expression: /прав|right/.test(t) ? "wink_right" : "wink_left" });
+    else if (/закрой глаза|моргн|blink/.test(t)) out.push({ op: "face", expression: "blink" });
+    else if (/открой рот|рот открыт|open (the )?mouth/.test(t)) out.push({ op: "face", expression: "mouth_open" });
+    else if (/нейтральн|спокойн|neutral/.test(t)) out.push({ op: "face", expression: "neutral" });
+    const look = t.match(/посмотри[\wа-яё]* (влево|вправо|вверх|вниз|прямо)|look (left|right|up|down)/);
+    if (look) { const d = look[1] || look[2]; out.push({ op: "set", lookX: /влево|left/.test(d) ? 25 : /вправо|right/.test(d) ? -25 : 0, lookY: /вверх|up/.test(d) ? 20 : /вниз|down/.test(d) ? -20 : 0 }); }
     if (part) { out.push({ op: "highlight", part: part.replace(/\s/g, "") }); out.push({ op: "focus", part: part.replace(/\s/g, "") }); }
     else if (/позвоночник|spine/.test(t)) { out.push({ op: "highlight", part: "позвоночник" }); }
     else if (/поясни|lumbar/.test(t)) out.push({ op: "highlight", part: "поясничный" }, { op: "focus", part: "поясничный" });
