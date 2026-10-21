@@ -8,6 +8,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
+import { setLinearSkinning } from "./dq-skinning.js";
 
 const D2R = Math.PI / 180;
 export const LAYERS = ["clothes", "hair", "skin", "muscles", "organs", "skeleton"];
@@ -166,6 +167,7 @@ export class HumanBody extends EventTarget {
     for (const m of ms) {
       if (!this.layerOn[m.userData.layerName]) { this.layerOn[m.userData.layerName] = true; this.applyLayers(); }
       const mm = m.userData.baseMat.clone(); mm.emissive = new THREE.Color(color); mm.emissiveIntensity = .55; mm.color = new THREE.Color(color).lerp(mm.color, .4);
+      mm.defines = { ...(m.userData.baseMat.defines || {}) };
       mm.depthTest = false; mm.transparent = true; mm.opacity = 1; m.material = mm; this.hl.set(m, mm);   /* seen through the layers above it */
       if (this.drive && m.userData.layerName === "muscles") this.drive.hookClone(m, mm);
     }
@@ -236,7 +238,14 @@ export class HumanBody extends EventTarget {
       this._rot("foot" + S, -(K - th), 0, 0);
     }
     // arms: abduction (raise to the side), flexion (raise forward), elbow flexion
-    this._rot("upperarm01L", -P.armLForward, 0, P.armLRaise); this._rot("upperarm01R", -P.armRForward, 0, -P.armRRaise);
+    // shoulder girdle joins the arm: past ~30° the clavicle lifts a little and, reaching forward, the scapula slides forward,
+    // so the arm keeps the asked angle and the shoulder does not tear (the rig moves clavicle and scapula as one piece,
+    // so the lift is kept small: a full 2:1 scapulohumeral rhythm would swing the scapula out of the back)
+    for (const [S, R, F, sg] of [["L", P.armLRaise, P.armLForward, 1], ["R", P.armRRaise, P.armRForward, -1]]) {
+      const on = this.rhythm !== false, elev = on ? Math.min(15, .15 * Math.max(0, R - 30) + .1 * Math.max(0, F - 40)) : 0, prot = on ? Math.min(18, .18 * Math.max(0, F - 20)) : 0;
+      this._rot("clavicle" + S, 0, -sg * prot, sg * elev);
+      this._rot("upperarm01" + S, -F, sg * prot, sg * (R - elev));
+    }
     this._rot("lowerarm01L", -P.elbowL, 0, 0); this._rot("lowerarm01R", -P.elbowR, 0, 0);
     // keep the feet planted: move the whole body so the feet stay where they stood
     this.root.position.set(0, 0, 0); this.root.updateMatrixWorld(true);
@@ -260,6 +269,12 @@ export class HumanBody extends EventTarget {
     if (!this.drive) return { ok: false, error: "muscle drive unavailable" };
     if (drive != null) this.drive.enabled = !!drive; if (skin != null) this.drive.skinOn = !!skin; if (tension != null) this.drive.tension = !!tension;
     return { ok: true, drive: this.drive.enabled, skin: this.drive.skinOn, tension: this.drive.tension };
+  }
+  // "dqs" (default: limbs keep their volume at bent joints) or "linear" (the classic blend, for comparison)
+  skinning(mode) {
+    const lin = mode === "linear"; this.skinMode = lin ? "linear" : "dqs";
+    this.root.traverse(o => { if (o.isSkinnedMesh) for (const mt of [o.material, o.userData.baseMat]) if (mt) setLinearSkinning(mt, lin); });
+    return { ok: true, skinning: this.skinMode };
   }
   muscleReport(n) { return this.drive ? this.drive.report(n).map(r => ({ ...r, ru: ruName(r.name) })) : []; }
   snap() { for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }

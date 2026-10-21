@@ -102,7 +102,7 @@ export class MuscleDrive {
     const hook = mm => {
       mm.onBeforeCompile = sh => {
         Object.assign(sh.uniforms, rec.u);
-        sh.vertexShader = "attribute float aRad; uniform float uBulge;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n transformed += objectNormal * aRad * uBulge;");
+        sh.vertexShader = "attribute float aRad; uniform float uBulge;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n transformed += normal * aRad * uBulge;");
         sh.fragmentShader = "uniform float uTension; uniform float uTensionOn;\n" + sh.fragmentShader.replace("#include <color_fragment>",
           "#include <color_fragment>\n if (uTensionOn > .5) { vec3 base = vec3(.33,.024,.016); vec3 c = uTension > 0. ? mix(base, vec3(1.,.28,.0), clamp(uTension*4.,0.,1.)) : mix(base, vec3(.04,.16,.75), clamp(-uTension*4.,0.,1.)); diffuseColor.rgb = c; }");
       };
@@ -132,7 +132,7 @@ export class MuscleDrive {
       prev && prev.call(mat, sh, r);
       Object.assign(sh.uniforms, mat.userData.uMus);
       sh.vertexShader = "attribute vec2 aMi; attribute vec2 aMw; uniform sampler2D uMusTex; uniform float uMusW; uniform float uSkinOn;\n" +
-        sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n { float d = aMw.x * texelFetch(uMusTex, ivec2(int(aMi.x), 0), 0).r + aMw.y * texelFetch(uMusTex, ivec2(int(aMi.y), 0), 0).r;\n   transformed += objectNormal * d * uSkinOn; }");
+        sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n { float d = aMw.x * texelFetch(uMusTex, ivec2(int(aMi.x), 0), 0).r + aMw.y * texelFetch(uMusTex, ivec2(int(aMi.y), 0), 0).r;\n   transformed += normal * d * uSkinOn; }");
     };
     mat.customProgramCacheKey = () => "skin-on-muscle-" + (mat.vertexColors ? 1 : 0);
     mat.needsUpdate = true;
