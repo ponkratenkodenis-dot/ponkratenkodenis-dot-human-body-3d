@@ -29,6 +29,10 @@
   - У каждой меши своё имя (`Vertebra L4`, `Femur.l`, `M Biceps brachii muscle.l`…).
   - В extras записан слой: `skin`, `clothes`, `muscles`, `skeleton`.
   - Цвет вершин кожи — маска «под одеждой»: R — костюм, G — обувь. По ней кожу под одеждой можно скрыть без мерцания.
+- **Кисти и стопы:** каждый палец сгибается по трём фалангам (большой: запястно-пястный, пястно-фаланговый, межфаланговый суставы).
+  - Оси сгибания посчитаны по ладони: пальцы сгибаются к ладони, большой палец противопоставляется указательному. В жесте «ОК» кончики сходятся до 12 мм между концами костей, то есть подушечки касаются. В кулаке большой палец ложится на среднюю фалангу указательного.
+  - Голеностоп сгибается, пальцы стоп поджимаются и поднимаются. На носках пол держат подушечки стоп, а не лодыжки.
+  - Сухожилия глубокого сгибателя пальцев (четыре сухожилия в одной сетке) идут каждое за своим пальцем. Ткани на фалангах двигаются с фалангами.
 - **Масштаб любой:** `scale` от значка до полного экрана; 1 = 1,75 м, единицы — метры.
 
 Кожа без раздевания нейтральная, как учебный манекен: без текстуры и без анатомической детализации интимных зон. Это вид для уроков, медицины и публичных проектов.
@@ -68,8 +72,9 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 
 | op | что делает | пример |
 |---|---|---|
-| `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow`; `amount` 0..1 | `{"op":"pose","preset":"squat","amount":0.7}` |
-| `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise` | `{"op":"set","spineFlex":30,"neckTwist":-20}` |
+| `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow, tiptoe`; `amount` 0..1. Жест кистей при смене позы сохраняется | `{"op":"pose","preset":"squat","amount":0.7}` |
+| `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise, wristLFlex, wristRFlex, ankleL, ankleR, toesL, toesR`; пальцы рук `thumbL, indexL, middleL, ringL, littleL` (и с `R`) — сгибание 0..1 | `{"op":"set","ankleL":30,"indexR":0.5}` |
+| `hand` | жест: `open, relaxed, fist, point, thumbs_up, ok, peace, pinch, grip`; `side`: `left, right, both` | `{"op":"hand","gesture":"ok","side":"right"}` |
 | `bend` | согнуть один отдел: `lumbar`, `thoracic`, `cervical` | `{"op":"bend","region":"lumbar","flex":25}` |
 | `peel` | глубина: `dressed, skin, muscles, muscles_bones, skeleton, xray, organs, organs_only` | `{"op":"peel","to":"organs"}` |
 | `layers` / `opacity` | слои по отдельности и их прозрачность | `{"op":"opacity","layer":"skin","value":0.2}` |
@@ -84,7 +89,7 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 | `list` | справка: `parts, vertebrae, presets, layers, commands` | `{"op":"list","what":"vertebrae"}` |
 | `state` / `snap` / `reset` | текущее состояние, мгновенно завершить переходы, сброс | |
 
-Знаки: плюс у `spineFlex` — вперёд, у `spineSide` — вправо, у `spineTwist` — влево; плюс у `kneeL` и `elbowL` — сгибание.
+Знаки: плюс у `spineFlex` — вперёд, у `spineSide` — вправо, у `spineTwist` — влево; плюс у `kneeL` и `elbowL` — сгибание; плюс у `ankleL` — носок вниз; плюс у `toesL` — пальцы поджаты, минус — подняты; плюс у `wristLFlex` — кисть к ладони.
 
 Части ищутся:
 - по точному имени (`Vertebra T7`);
@@ -155,7 +160,8 @@ blender -b out/anatomy_mo.blend --python tools/export_all.py -- viewer/human.glb
 
 **Что пока приблизительно:**
 - Женская форма таза и грудной клетки получена деформацией мужского образца по средним соотношениям, а не со сканов женщин. Межгребневый размер и конъюгату дальше не пускает кожа этого тела.
-- Кисти и стопы двигаются целиком, фаланги отдельно пока не сгибаются.
+- Пальцы рук не разводятся в стороны (только сгибание), предплечье не вращается (пронация и супинация).
+- У ботинка верх выше края штанины не рисуется (белый «носок» ботинка вылезал сквозь узкие штанины).
 - Мышцы меняют толщину по длине, без симуляции силы и без столкновений между собой. Изменение кожи от мышц мягкое, на сгибах кожа сохраняет объём, но складок на ней нет.
 - Ключица и лопатка в скелете для анимации — одна кость. Поэтому полный ритм лопатки (её поворот на ~60° при поднятой руке) не воспроизводится, подъём плеча сделан мягким.
 - **Органы:** лёгкие по долям, трахея, сердце (4 камеры, лёгочный ствол), пищевод, желудок, двенадцатиперстная и тощая кишка, ободочная кишка, аппендикс, печень, желчный пузырь, поджелудочная железа, селезёнка, мочевой пузырь, надпочечники.

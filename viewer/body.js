@@ -23,7 +23,17 @@ const SHARE = {
 // region -> spine segments, for "bend only the lumbar spine"
 const REGION = { lumbar: ["spine05", "spine04", "spine03"], thoracic: ["spine02", "spine01"], cervical: ["neck01", "neck02", "neck03"] };
 export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "neckSide", "neckTwist", "hipFlex",
-  "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise", "breath"];
+  "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
+  "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR",
+  "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "breath"];
+// hand keys are kept when a whole-body preset is chosen (a fist stays a fist while the body squats)
+export const HAND_KEYS = ["thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "wristLFlex", "wristRFlex"];
+export const FINGERS = ["thumb", "index", "middle", "ring", "little"];
+// gestures: curl of thumb, index, middle, ring, little
+export const GESTURES = {
+  open: [0, 0, 0, 0, 0], relaxed: [.15, .2, .25, .3, .35], fist: [.9, 1, 1, 1, 1], point: [.9, 0, 1, 1, 1],
+  thumbs_up: [-.1, 1, 1, 1, 1], ok: [1, .7, .05, .1, .15], peace: [.9, 0, 0, 1, 1], pinch: [.95, .65, .25, .3, .35], grip: [.5, .6, .6, .6, .6]
+};
 export const PRESETS = {
   stand: {},
   anatomical: { armLRaise: -38, armRRaise: -38 },
@@ -38,10 +48,14 @@ export const PRESETS = {
   squat: { hipFlex: 40, kneeL: 115, kneeR: 115, spineFlex: 12, armLForward: 75, armRForward: 75, armLRaise: -30, armRRaise: -30 },
   slouch: { spineFlex: 22, neckFlex: -18 },
   look_down: { neckFlex: 35 }, look_up: { neckFlex: -30 },
-  cat: { spineFlex: 30, neckFlex: 25 }, cow: { spineFlex: -20, neckFlex: -25 }
+  cat: { spineFlex: 30, neckFlex: 25 }, cow: { spineFlex: -20, neckFlex: -25 },
+  tiptoe: { ankleL: 40, ankleR: 40, toesL: -40, toesR: -40 }
 };
 
 export class HumanBody extends EventTarget {
+  PALM = 1;      // which side of the hand is the palm in this rig (checked on renders)
+  THUMB_OPP = .8; // how much the thumb metacarpal swings across the palm toward the index finger
+  CURL = { finger: [85, 100, 65], thumb: [45, 50, 45] };
   constructor(el, opt = {}) {
     super();
     this.el = el; this.opt = Object.assign({ url: "human.glb", draco: "draco/" }, opt);
@@ -95,11 +109,66 @@ export class HumanBody extends EventTarget {
     // anatomical axes: each bone rotates about the body's own axes as they were in the rest pose
     // (X = left-right: flexion/extension, Y = vertical: rotation, Z = front-back: side bend / abduction)
     for (const k in this.bones) { const B = this.bones[k], q = new THREE.Quaternion(); if (B.parent) B.parent.getWorldQuaternion(q); const rq = this.root.getWorldQuaternion(new THREE.Quaternion()).invert(); q.premultiply(rq); B.userData.pr = q.clone(); B.userData.pri = q.clone().invert(); }
+    this._setupExtremities();
     // bones -> muscles -> skin
     this.drive = new MuscleDrive(this); this.root.updateMatrixWorld(true);
     try { this.driveStats = this.drive.setup(); } catch (e) { console.warn("muscle drive off:", e); this.drive = null; }
+    this._tuckShoes();
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
+  }
+  // flexion axes of the fingers, thumb and wrist from the palm of the rest pose (the hands are turned their own way,
+  // so body axes do not fit them): a finger bends toward the palm, the thumb toward the index finger and the palm
+  _setupExtremities() {
+    const inv = new THREE.Matrix4().copy(this.root.matrixWorld).invert(), V = THREE.Vector3;
+    const P = n => this.bones[n] ? this.bones[n].getWorldPosition(new V()).applyMatrix4(inv) : null;
+    const dir = (n, next, prev) => { const a = P(n), b = next && P(next); return (b ? b.sub(a) : a.clone().sub(P(prev))).normalize(); };
+    this.hand = {};
+    for (const S of ["L", "R"]) {
+      if (!this.bones["wrist" + S] || !this.bones["finger5-1" + S]) continue;
+      const h = P("finger3-1" + S).sub(P("wrist" + S)).normalize(), across = P("finger5-1" + S).sub(P("finger2-1" + S));
+      const n = new V().crossVectors(h, across).normalize().multiplyScalar(S === "L" ? this.PALM : -this.PALM), ax = {};
+      for (let f = 2; f <= 5; f++) for (let j = 1; j <= 3; j++) {
+        const nm = `finger${f}-${j}${S}`; if (!this.bones[nm]) continue;
+        ax[nm] = new V().crossVectors(dir(nm, j < 3 ? `finger${f}-${j + 1}${S}` : null, `finger${f}-${j - 1}${S}`), n).normalize();
+      }
+      const toIndex = P("finger2-1" + S).sub(P("finger1-2" + S));
+      for (let j = 1; j <= 3; j++) {
+        const nm = `finger1-${j}${S}`; if (!this.bones[nm]) continue;
+        const d = dir(nm, j < 3 ? `finger1-${j + 1}${S}` : null, `finger1-${j - 1}${S}`);
+        const u = toIndex.clone().sub(d.clone().multiplyScalar(toIndex.dot(d))).normalize();
+        const p = j === 1 ? n.clone().add(u.multiplyScalar(this.THUMB_OPP)) : u.add(n);     // CMC: toward the palm and across it (opposition)
+        p.sub(d.clone().multiplyScalar(p.dot(d))).normalize(); ax[nm] = new V().crossVectors(d, p).normalize();
+      }
+      ax["wrist" + S] = new V().crossVectors(h, n).normalize();
+      this.hand[S] = { n, ax };
+    }
+    this._balls = ["toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean);
+    this._ballRest = this._ballPos();
+  }
+  _ballPos() { const v = new THREE.Vector3(), s = new THREE.Vector3(); (this._balls || []).forEach(f => s.add(f.getWorldPosition(v))); return s.multiplyScalar(1 / ((this._balls || []).length || 1)); }
+  // rotate a bone about an axis given in the root frame of the rest pose (degrees)
+  _rotAx(b, axis, deg) {
+    const B = this.bones[b]; if (!B || !axis || !deg) return;
+    this._q.setFromAxisAngle(axis, deg * D2R); this._q2.copy(B.userData.pri).multiply(this._q).multiply(B.userData.pr); B.quaternion.premultiply(this._q2);
+  }
+  // gesture for one or both hands: open, relaxed, fist, point, thumbs_up, ok, peace, pinch, grip
+  gesture(name, side = "both", amount = 1) {
+    const g = GESTURES[name]; if (!g) throw new Error("unknown gesture " + name);
+    const o = {}; for (const S of side === "left" ? ["L"] : side === "right" ? ["R"] : ["L", "R"]) FINGERS.forEach((f, i) => (o[f + S] = g[i] * amount));
+    this.setPose(o); return o;
+  }
+  // the shoe model reaches 22 cm up the shin (a white sock top) while the trouser legs end at ~7.5 cm; tight trousers
+  // let the sock top poke through them. Above the hem the shoe is always under the trousers, so it is not drawn.
+  _tuckShoes(cut = .1) {
+    const m = this.parts.get("Body.shoes01") || [...this.layerMeshes.clothes].find(x => /shoe/i.test(x.name + (x.userData.part || ""))); if (!m) return;
+    const mat = m.material, prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => "";
+    mat.onBeforeCompile = (sh, r) => {
+      prev && prev.call(mat, sh, r); sh.uniforms.uShoeCut = { value: cut };
+      sh.vertexShader = "varying float vRestY;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n#ifdef USE_SKINNING\n vRestY = (bindMatrix * vec4(position, 1.0)).y;\n#else\n vRestY = position.y;\n#endif");
+      sh.fragmentShader = "varying float vRestY; uniform float uShoeCut;\n" + sh.fragmentShader.replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n if (vRestY > uShoeCut) discard;");
+    };
+    mat.customProgramCacheKey = () => "shoe-tuck|" + prevKey(); mat.needsUpdate = true;
   }
   _mat(m, o) { const n = new THREE.MeshStandardMaterial({ color: o.color != null ? o.color : m.color, roughness: o.roughness, metalness: 0 }); return n; }
   _skinMaterial(mesh) {
@@ -210,7 +279,7 @@ export class HumanBody extends EventTarget {
 
   /* ---------------- pose ---------------- */
   setPose(p, replace = false) { if (replace) for (const k of POSE_KEYS) if (k !== "breath") this.target[k] = 0; for (const k in p) if (k in this.target) this.target[k] = +p[k]; }
-  preset(name, amount = 1) { const P = PRESETS[name]; if (!P) throw new Error("unknown preset " + name); const o = {}; for (const k of POSE_KEYS) if (k !== "breath") o[k] = (P[k] || 0) * amount; this.setPose(o); }
+  preset(name, amount = 1) { const P = PRESETS[name]; if (!P) throw new Error("unknown preset " + name); const o = {}; for (const k of POSE_KEYS) if (k !== "breath" && (!HAND_KEYS.includes(k) || k in P)) o[k] = (P[k] || 0) * amount; this.setPose(o); }
   bendRegion(region, { flex = 0, side = 0, twist = 0 } = {}) { this.regionBend = this.regionBend || {}; this.regionBend[region] = { flex, side, twist }; }
   _footPos() { const v = new THREE.Vector3(), s = new THREE.Vector3(); this._feet.forEach(f => s.add(f.getWorldPosition(v))); return s.multiplyScalar(1 / (this._feet.length || 1)); }
   // rotate bone b about the body's anatomical axes, degrees: x = flexion (+ tips an upward bone forward), y = turn to the body's left, z = tip to the body's right
@@ -235,7 +304,9 @@ export class HumanBody extends EventTarget {
       const th = K * .75;
       this._rot("upperleg01" + S, -P.hipFlex - th, 0, S === "L" ? -A : A);
       this._rot("lowerleg01" + S, K, 0, 0);
-      this._rot("foot" + S, -(K - th), 0, 0);
+      this._rot("foot" + S, -(K - th) + P["ankle" + S], 0, 0);           // + ankle: plantar flexion (point the foot)
+      const t = P["toes" + S];                                            // + curl the toes down, - lift them (as on tiptoe)
+      if (t) for (let k = 1; k <= 5; k++) { this._rot(`toe${k}-1${S}`, t, 0, 0); if (t > 0) { this._rot(`toe${k}-2${S}`, t * .8, 0, 0); this._rot(`toe${k}-3${S}`, t * .5, 0, 0); } }
     }
     // arms: abduction (raise to the side), flexion (raise forward), elbow flexion
     // shoulder girdle joins the arm: past ~30° the clavicle lifts a little and, reaching forward, the scapula slides forward,
@@ -247,9 +318,21 @@ export class HumanBody extends EventTarget {
       this._rot("upperarm01" + S, -F, sg * prot, sg * (R - elev));
     }
     this._rot("lowerarm01L", -P.elbowL, 0, 0); this._rot("lowerarm01R", -P.elbowR, 0, 0);
+    // wrists and fingers about the hand's own axes
+    if (this.hand) for (const S of ["L", "R"]) {
+      const H = this.hand[S]; if (!H) continue;
+      this._rotAx("wrist" + S, H.ax["wrist" + S], P["wrist" + S + "Flex"]);
+      FINGERS.forEach((f, i) => {
+        const c = P[f + S]; if (!c) return; const T = i === 0 ? this.CURL.thumb : this.CURL.finger;
+        for (let j = 1; j <= 3; j++) this._rotAx(`finger${i + 1}-${j}${S}`, H.ax[`finger${i + 1}-${j}${S}`], c * T[j - 1]);
+      });
+    }
     // keep the feet planted: move the whole body so the feet stay where they stood
     this.root.position.set(0, 0, 0); this.root.updateMatrixWorld(true);
-    const f = this._footPos(); this.root.position.set(this._footRest.x - f.x, this._footRest.y - f.y, this._footRest.z - f.z);
+    // pointing the feet (tiptoe): the balls of the feet stay on the floor instead of the ankles
+    const w = Math.min(1, Math.max(0, Math.max(P.ankleL, P.ankleR) / 15)), f = this._footPos(), rest = this._footRest.clone();
+    if (w > 0 && this._ballRest) { f.lerp(this._ballPos(), w); rest.lerp(this._ballRest, w); }
+    this.root.position.set(rest.x - f.x, rest.y - f.y, rest.z - f.z);
   }
   frame() {
     const dt = Math.min(.05, this.clock.getDelta()); this.t += dt;

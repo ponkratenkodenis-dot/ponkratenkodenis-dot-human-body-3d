@@ -1,11 +1,12 @@
 // Command layer: every action on the body is a small JSON object, so any AI (or a script, or a button) can drive it.
 // run(cmd) accepts one command, an array of commands, a JSON string, or a short Russian/English phrase.
-import { PRESETS, POSE_KEYS, LAYERS } from "./body.js";
+import { PRESETS, POSE_KEYS, LAYERS, GESTURES, FINGERS } from "./body.js";
 import { VERTEBRAE } from "./names-ru.js";
 
 export const COMMANDS = {
   pose:      { desc: "Готовая поза. preset: " + Object.keys(PRESETS).join(", ") + "; amount 0..1 (насколько сильно).", args: { preset: "string", amount: "number?" } },
-  set:       { desc: "Точная поза в градусах. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево.", args: { "<key>": "number" } },
+  set:       { desc: "Точная поза. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Градусы, кроме пальцев рук. Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево; ankleL/R плюс = носок вниз; toesL/R плюс = пальцы стопы поджаты, минус = подняты; wristLFlex/wristRFlex плюс = кисть к ладони. Пальцы рук (thumbL, indexL, middleL, ringL, littleL и то же с R) — степень сгибания 0..1 (1 = в кулак).", args: { "<key>": "number" } },
+  hand:      { desc: "Жест кистью. gesture: " + Object.keys(GESTURES).join(", ") + "; side: left | right | both; amount 0..1.", args: { gesture: "string", side: "string?", amount: "number?" } },
   bend:      { desc: "Согнуть один отдел позвоночника. region: lumbar | thoracic | cervical; flex/side/twist в градусах.", args: { region: "string", flex: "number?", side: "number?", twist: "number?" } },
   layers:    { desc: "Показать/скрыть слои: " + LAYERS.join(", ") + ". show/hide — списки.", args: { show: "string[]?", hide: "string[]?" } },
   peel:      { desc: "Снять слои до глубины: dressed | skin | muscles | skeleton | muscles_bones | xray | organs (органы в прозрачной коже со скелетом) | organs_only.", args: { to: "string" } },
@@ -45,7 +46,7 @@ export const TOOL = {
             show: {}, hide: { type: "array", items: { type: "string" } }, to: { type: "string" },
             layer: { type: "string" }, value: { type: "number" }, part: { type: "string" }, color: { type: "string" },
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
-            drive: { type: "boolean" }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
+            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
           required: ["op"]
@@ -65,6 +66,7 @@ export class Commander {
     const b = this.b, op = c.op;
     switch (op) {
       case "pose": b.preset(c.preset, c.amount == null ? 1 : c.amount); return { ok: true, pose: c.preset };
+      case "hand": return { ok: true, set: b.gesture(c.gesture, c.side || "both", c.amount == null ? 1 : c.amount) };
       case "set": { const p = {}; for (const k of POSE_KEYS) if (k in c) p[k] = c[k]; b.setPose(p); return { ok: true, set: p }; }
       case "bend": b.bendRegion(c.region, c); return { ok: true };
       case "layers": (c.show || []).forEach(l => b.setLayer(l, true)); (c.hide || []).forEach(l => b.setLayer(l, false)); return { ok: true, layers: b.layerOn };
@@ -115,8 +117,16 @@ export class Commander {
     else if (/поверн|скрут|twist/.test(t)) out.push({ op: "pose", preset: /прав|right/.test(t) ? "twist_right" : "twist_left" });
     else if (/присед|squat/.test(t)) out.push({ op: "pose", preset: "squat" });
     else if (/руки вверх|arms up/.test(t)) out.push({ op: "pose", preset: "arms_up" });
+    else if (/на носк|на цыпочк|tiptoe/.test(t)) out.push({ op: "pose", preset: "tiptoe" });
     else if (/сутул|slouch/.test(t)) out.push({ op: "pose", preset: "slouch" });
     else if (/выпрям|стой|stand/.test(t)) out.push({ op: "pose", preset: "stand" });
+    const side = /лев\w* рук|левой|left hand/.test(t) ? "left" : /прав\w* рук|правой|right hand/.test(t) ? "right" : "both";
+    if (/кулак|fist/.test(t)) out.push({ op: "hand", gesture: "fist", side });
+    else if (/класс|большой палец|thumbs? up|лайк/.test(t)) out.push({ op: "hand", gesture: "thumbs_up", side });
+    else if (/(^|[\s,.!])(ок|окей|ok)([\s,.!]|$)/.test(t)) out.push({ op: "hand", gesture: "ok", side });
+    else if (/указ|point/.test(t)) out.push({ op: "hand", gesture: "point", side });
+    else if (/(^|\s)мир|виктори|peace|(^|\s)v([\s,.!]|$)/.test(t)) out.push({ op: "hand", gesture: "peace", side });
+    else if (/разожми|раскрой|открой ладон|open hand/.test(t)) out.push({ op: "hand", gesture: "open", side });
     if (part) { out.push({ op: "highlight", part: part.replace(/\s/g, "") }); out.push({ op: "focus", part: part.replace(/\s/g, "") }); }
     else if (/позвоночник|spine/.test(t)) { out.push({ op: "highlight", part: "позвоночник" }); }
     else if (/поясни|lumbar/.test(t)) out.push({ op: "highlight", part: "поясничный" }, { op: "focus", part: "поясничный" });

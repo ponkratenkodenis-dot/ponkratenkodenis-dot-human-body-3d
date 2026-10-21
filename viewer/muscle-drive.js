@@ -66,8 +66,9 @@ export class MuscleDrive {
       if (rec.attached) {
         rec.loc = att.map((a, k) => { const bone = a[3], bi = m.skeleton.bones.indexOf(bone); const inv = bi >= 0 ? m.skeleton.boneInverses[bi] : new THREE.Matrix4().copy(bone.matrixWorld).invert(); return { bone, p: ends[k].clone().applyMatrix4(inv) }; });
         rec.L0 = ends[0].distanceTo(ends[1]);
-        this._pinEnds(m, t, tmin, len, att.map(a => a[3]));                           // tendons go with their bones
+        this._pinEnds(m, t, tmin, len, att.map(a => a[3]), P, nearestBone);          // tendons go with their bones
       }
+      this._digits(m, P, nearestBone);
       this._muscleShader(m, rec);
       this.M.push(rec);
       const step = Math.max(1, Math.floor(n / 220));
@@ -83,18 +84,39 @@ export class MuscleDrive {
   }
 
   // blend the weights at each end of the muscle toward the bone it is attached to
-  _pinEnds(m, t, tmin, len, bones) {
+  // a muscle with several tendons at one end (deep finger flexor: four fingers) has each vertex pinned to its own nearest bone
+  _pinEnds(m, t, tmin, len, bones, P, nearestBone) {
     const g = m.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, n = si.count, bi = bones.map(bn => m.skeleton.bones.indexOf(bn)), ef = this.opt.endFrac;
     if (bi.some(x => x < 0)) return;
+    const v = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
       const tn = (t[i] - tmin) / len, w0 = 1 - sstep(0, ef * 1.6, tn), w1 = sstep(1 - ef * 1.6, 1, tn), we = Math.max(w0, w1); if (we <= 0) continue;
-      const tgt = w0 >= w1 ? bi[0] : bi[1], acc = new Map();
+      let tgt = w0 >= w1 ? bi[0] : bi[1];
+      const nb = nearestBone(v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]), .02), k = nb ? m.skeleton.bones.indexOf(nb[3]) : -1; if (k >= 0) tgt = k;
+      const acc = new Map();
       for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k) * (1 - we); if (w > 0) acc.set(si.getComponent(i, k), (acc.get(si.getComponent(i, k)) || 0) + w); }
       acc.set(tgt, (acc.get(tgt) || 0) + we);
       const top = [...acc.entries()].sort((a, c) => c[1] - a[1]).slice(0, 4), s = top.reduce((a, c) => a + c[1], 0);
       for (let k = 0; k < 4; k++) { si.setComponent(i, k, top[k] ? top[k][0] : 0); sw.setComponent(i, k, top[k] ? top[k][1] / s : 0); }
     }
     si.needsUpdate = sw.needsUpdate = true;
+  }
+
+  // tissue lying on a finger or toe bone (tendons, lumbricals, sheaths) moves with that phalanx
+  _digits(m, P, nearestBone) {
+    const g = m.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, n = si.count, v = new THREE.Vector3(), R = .012; let changed = false;
+    for (let i = 0; i < n; i++) {
+      v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); const nb = nearestBone(v, R); if (!nb || !/^(finger|toe|metacarpal)/.test(nb[3].name)) continue;
+      const k = m.skeleton.bones.indexOf(nb[3]); if (k < 0) continue;
+      const d = Math.hypot(nb[0] - v.x, nb[1] - v.y, nb[2] - v.z), w = 1 - sstep(R * .4, R, d); if (w <= 0) continue;
+      const acc = new Map();
+      for (let j = 0; j < 4; j++) { const ww = sw.getComponent(i, j) * (1 - w); if (ww > 0) acc.set(si.getComponent(i, j), (acc.get(si.getComponent(i, j)) || 0) + ww); }
+      acc.set(k, (acc.get(k) || 0) + w);
+      const top = [...acc.entries()].sort((a, c) => c[1] - a[1]).slice(0, 4), s = top.reduce((a, c) => a + c[1], 0);
+      for (let j = 0; j < 4; j++) { si.setComponent(i, j, top[j] ? top[j][0] : 0); sw.setComponent(i, j, top[j] ? top[j][1] / s : 0); }
+      changed = true;
+    }
+    if (changed) si.needsUpdate = sw.needsUpdate = true;
   }
 
   _muscleShader(m, rec) {
