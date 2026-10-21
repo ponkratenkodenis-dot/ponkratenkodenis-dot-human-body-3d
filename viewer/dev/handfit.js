@@ -18,3 +18,12 @@ export function search(Body) {
   }
   return out.sort((a, c) => a.okDist_mm - c.okDist_mm);
 }
+export function fistThumb(Body) {
+  const b = Body.body, out = [];
+  for (let t = -.2; t <= 1.21; t += .1) {
+    Body.run([{ op: "set", thumbL: t, indexL: 1, middleL: 1, ringL: 1, littleL: 1 }, { op: "snap" }]); b.root.updateMatrixWorld(true);
+    const T = tip(b, 1, "L"), m2 = b.bones["finger2-2L"].getWorldPosition(new THREE.Vector3()), m3 = b.bones["finger3-2L"].getWorldPosition(new THREE.Vector3());
+    out.push([+t.toFixed(1), Math.round(Math.min(T.distanceTo(m2), T.distanceTo(m3)) * 1000)]);
+  }
+  return out;
+}

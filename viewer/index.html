@@ -191,12 +191,12 @@ document.querySelectorAll("#peel .chip").forEach(c => c.onclick = () => { body.p
 /* poses */
 const PNAME = { stand: "Стойка", anatomical: "Анатомическая", forward_bend: "Наклон вперёд", back_bend: "Прогиб назад", side_bend_left: "Вбок влево", side_bend_right: "Вбок вправо",
   twist_left: "Поворот влево", twist_right: "Поворот вправо", arms_up: "Руки вверх", t_pose: "Руки в стороны", squat: "Присед", slouch: "Сутулость", look_down: "Голову вниз", look_up: "Голову вверх", cat: "Кошка", cow: "Корова", tiptoe: "На носках" };
-const GNAME = { open: "Ладонь", relaxed: "Расслабленно", fist: "Кулак", point: "Указать", thumbs_up: "Класс", ok: "ОК", peace: "Мир", pinch: "Щепоть", grip: "Хват" };
+const GNAME = { spread: "Развести пальцы", open: "Ладонь", relaxed: "Расслабленно", fist: "Кулак", point: "Указать", thumbs_up: "Класс", ok: "ОК", peace: "Мир", pinch: "Щепоть", grip: "Хват" };
 for (const g of Object.keys(GESTURES)) { const b = document.createElement("button"); b.className = "chip"; b.textContent = GNAME[g] || g; b.onclick = () => { body.gesture(g); log({ op: "hand", gesture: g }); }; $("gestures").append(b); }
 for (const p of Object.keys(PRESETS)) { const b = document.createElement("button"); b.className = "chip"; b.textContent = PNAME[p] || p; b.onclick = () => { body.preset(p); syncSliders(); log({ op: "pose", preset: p }); }; $("presets").append(b); }
 const SL = [["spineFlex", "Наклон вперёд / назад", -35, 90], ["spineSide", "Наклон вбок", -40, 40], ["spineTwist", "Поворот корпуса", -45, 45], ["neckFlex", "Голова вниз / вверх", -45, 55],
   ["neckTwist", "Поворот головы", -70, 70], ["hipFlex", "Сгибание в тазобедренных", -15, 95], ["armLRaise", "Левая рука в сторону", -40, 140], ["armRRaise", "Правая рука в сторону", -40, 140], ["kneeL", "Колено левое", 0, 130], ["kneeR", "Колено правое", 0, 130],
-  ["ankleL", "Стопа левая: носок вниз / вверх", -25, 50], ["ankleR", "Стопа правая: носок вниз / вверх", -25, 50], ["toesL", "Пальцы левой стопы: поджать / поднять", -45, 45], ["wristLFlex", "Кисть левая: к ладони / назад", -60, 70]];
+  ["ankleL", "Стопа левая: носок вниз / вверх", -25, 50], ["ankleR", "Стопа правая: носок вниз / вверх", -25, 50], ["toesL", "Пальцы левой стопы: поджать / поднять", -45, 45], ["wristLFlex", "Кисть левая: к ладони / назад", -60, 70], ["forearmL", "Предплечье левое: ладонью вверх / вниз", -120, 80], ["forearmR", "Предплечье правое: ладонью вверх / вниз", -120, 80]];
 for (const [k, name, lo, hi] of SL) {
   const r = document.createElement("div"); r.className = "row";
   r.innerHTML = `<label for="s-${k}">${name}</label><output id="o-${k}">0°</output><input type="range" id="s-${k}" min="${lo}" max="${hi}" step="1" value="0">`;

@@ -155,6 +155,7 @@ for side, S in (("l", "L"), ("r", "R")):
         M = sim(p0, p1, q0, q1)
         for n in names:
             T[f"{n}.{side}"] = M; BONE[f"{n}.{side}"] = rb
+    BONE[f"Ulna.{side}"] = f"lowerarm01.{S}"      # the ulna does not turn: only the radius (with the hand) rotates in pronation
     # carpals + metacarpal block on the wrist, phalanges on the finger bones
     Mw = sim(wri, mcp3, J(f"wrist.{S}"), J(f"finger3-1.{S}"))
     for n in PARTS:

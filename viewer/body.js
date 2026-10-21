@@ -24,19 +24,19 @@ const SHARE = {
 const REGION = { lumbar: ["spine05", "spine04", "spine03"], thoracic: ["spine02", "spine01"], cervical: ["neck01", "neck02", "neck03"] };
 export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "neckSide", "neckTwist", "hipFlex",
   "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
-  "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR",
+  "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR", "forearmL", "forearmR", "spreadL", "spreadR",
   "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "breath"];
 // hand keys are kept when a whole-body preset is chosen (a fist stays a fist while the body squats)
-export const HAND_KEYS = ["thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "wristLFlex", "wristRFlex"];
+export const HAND_KEYS = ["thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR", "wristLFlex", "wristRFlex", "spreadL", "spreadR"];
 export const FINGERS = ["thumb", "index", "middle", "ring", "little"];
-// gestures: curl of thumb, index, middle, ring, little
+// gestures: curl of thumb, index, middle, ring, little; then how far the fingers are spread (0..1)
 export const GESTURES = {
-  open: [0, 0, 0, 0, 0], relaxed: [.15, .2, .25, .3, .35], fist: [.9, 1, 1, 1, 1], point: [.9, 0, 1, 1, 1],
-  thumbs_up: [-.1, 1, 1, 1, 1], ok: [1, .7, .05, .1, .15], peace: [.9, 0, 0, 1, 1], pinch: [.95, .65, .25, .3, .35], grip: [.5, .6, .6, .6, .6]
+  open: [0, 0, 0, 0, 0, .25], spread: [-.1, 0, 0, 0, 0, 1], relaxed: [.15, .2, .25, .3, .35, .15], fist: [.9, 1, 1, 1, 1, 0], point: [.9, 0, 1, 1, 1, 0],
+  thumbs_up: [-.1, 1, 1, 1, 1, 0], ok: [.5, .4, .05, .1, .15, .3], peace: [.9, 0, 0, 1, 1, .6], pinch: [.5, .4, .25, .3, .35, 0], grip: [.5, .6, .6, .6, .6, 0]
 };
 export const PRESETS = {
   stand: {},
-  anatomical: { armLRaise: -38, armRRaise: -38 },
+  anatomical: { armLRaise: -38, armRRaise: -38, elbowL: -50, elbowR: -50, forearmL: -120, forearmR: -120 },   // palms forward (dev/palm.js)
   forward_bend: { spineFlex: 55, hipFlex: 65, neckFlex: 15 },
   back_bend: { spineFlex: -25, neckFlex: -20, hipFlex: -8 },
   side_bend_left: { spineSide: -30, neckSide: -10 },
@@ -53,9 +53,10 @@ export const PRESETS = {
 };
 
 export class HumanBody extends EventTarget {
-  PALM = 1;      // which side of the hand is the palm in this rig (checked on renders)
-  THUMB_OPP = .8; // how much the thumb metacarpal swings across the palm toward the index finger
-  CURL = { finger: [85, 100, 65], thumb: [45, 50, 45] };
+  PALM = -1;     // which side of the hand is the palm: checked numerically (fingertips of a fist move toward the anatomical palm, dev/palm.js)
+  THUMB_OPP = .8;  // (with CMC 30°: OK tips 7 mm apart, dev/handfit.js)
+  PRON = 1;       // sign of pronation about the radius axis (checked on renders) // how much the thumb metacarpal swings across the palm toward the index finger
+  CURL = { finger: [85, 100, 65], thumb: [30, 50, 45] };
   constructor(el, opt = {}) {
     super();
     this.el = el; this.opt = Object.assign({ url: "human.glb", draco: "draco/" }, opt);
@@ -141,7 +142,35 @@ export class HumanBody extends EventTarget {
         p.sub(d.clone().multiplyScalar(p.dot(d))).normalize(); ax[nm] = new V().crossVectors(d, p).normalize();
       }
       ax["wrist" + S] = new V().crossVectors(h, n).normalize();
-      this.hand[S] = { n, ax };
+      // spreading: index, ring and little finger turn away from the middle finger about the palm normal
+      const mid = P("finger3-1" + S), spread = {};
+      for (const [f, deg] of [[2, 12], [4, 9], [5, 18]]) {
+        const nm = `finger${f}-1${S}`; if (!this.bones[nm]) continue;
+        const d = dir(nm, `finger${f}-2${S}`), away = P(nm).sub(mid), k = new V().crossVectors(n, d);
+        spread[nm] = { axis: n.clone().multiplyScalar(k.dot(away) > 0 ? 1 : -1), deg };
+      }
+      this.hand[S] = { n, ax, spread };
+    }
+    // forearm rotation (+ pronation: palm turns down / back, - supination: palm up / forward). The radius turns about the
+    // line from its own head at the elbow to the head of the ulna at the wrist; the ulna stays still; the hand goes with
+    // the radius. The rig's lower forearm bone carries the radius and the hand, so it is turned about that line.
+    this.forearm = {};
+    const cap = (name, near, far, prox) => {
+      const m = this.parts.get(name); if (!m) return null;
+      const p = m.geometry.attributes.position, v = new V(), u = far.clone().sub(near).normalize(), T = [], Q = [];
+      for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(m.bindMatrix).applyMatrix4(inv); Q.push(v.clone()); T.push(v.clone().sub(near).dot(u)); }
+      const lo = Math.min(...T), hi = Math.max(...T), L = hi - lo, c = new V(); let n = 0;
+      Q.forEach((q, i) => { if (prox ? T[i] < lo + .06 * L : T[i] > hi - .06 * L) { c.add(q); n++; } });
+      return n ? c.multiplyScalar(1 / n) : null;
+    };
+    for (const [S, s] of [["L", "l"], ["R", "r"]]) {
+      const B = this.bones["lowerarm02" + S], E = P("lowerarm01" + S), W = P("wrist" + S); if (!B || !E || !W) continue;
+      const C0 = cap(`Radius.${s}`, E, W, true) || E, C1 = cap(`Ulna.${s}`, E, W, false) || W;
+      B.parent.updateMatrixWorld(true); const Mi = new THREE.Matrix4().copy(inv).multiply(B.parent.matrixWorld).invert();
+      const c = C0.clone().applyMatrix4(Mi), a = C1.clone().applyMatrix4(Mi).sub(c).normalize();
+      this.forearm[S] = { bone: B, c, a, pos0: B.position.clone(), sign: (S === "L" ? 1 : -1) * this.PRON, cRoot: C0.clone(), aRoot: C1.clone().sub(C0).normalize() };
+      const ul = this.parts.get(`Ulna.${s}`), k = ul && ul.isSkinnedMesh ? ul.skeleton.bones.indexOf(this.bones["lowerarm01" + S]) : -1;
+      if (k >= 0) { const si = ul.geometry.attributes.skinIndex, sw = ul.geometry.attributes.skinWeight; for (let i = 0; i < si.count; i++) { si.setXYZW(i, k, 0, 0, 0); sw.setXYZW(i, 1, 0, 0, 0); } si.needsUpdate = sw.needsUpdate = true; }
     }
     this._balls = ["toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean);
     this._ballRest = this._ballPos();
@@ -155,7 +184,7 @@ export class HumanBody extends EventTarget {
   // gesture for one or both hands: open, relaxed, fist, point, thumbs_up, ok, peace, pinch, grip
   gesture(name, side = "both", amount = 1) {
     const g = GESTURES[name]; if (!g) throw new Error("unknown gesture " + name);
-    const o = {}; for (const S of side === "left" ? ["L"] : side === "right" ? ["R"] : ["L", "R"]) FINGERS.forEach((f, i) => (o[f + S] = g[i] * amount));
+    const o = {}; for (const S of side === "left" ? ["L"] : side === "right" ? ["R"] : ["L", "R"]) { FINGERS.forEach((f, i) => (o[f + S] = g[i] * amount)); o["spread" + S] = (g[5] || 0) * amount; }
     this.setPose(o); return o;
   }
   // the shoe model reaches 22 cm up the shin (a white sock top) while the trouser legs end at ~7.5 cm; tight trousers
@@ -318,9 +347,15 @@ export class HumanBody extends EventTarget {
       this._rot("upperarm01" + S, -F, sg * prot, sg * (R - elev));
     }
     this._rot("lowerarm01L", -P.elbowL, 0, 0); this._rot("lowerarm01R", -P.elbowR, 0, 0);
+    // forearm: the radius (and the hand) turns about the radioulnar axis
+    if (this.forearm) for (const S of ["L", "R"]) {
+      const F = this.forearm[S]; if (!F) continue; F.bone.position.copy(F.pos0); const th = P["forearm" + S] * F.sign; if (!th) continue;
+      this._q.setFromAxisAngle(F.a, th * D2R); F.bone.quaternion.premultiply(this._q); F.bone.position.sub(F.c).applyQuaternion(this._q).add(F.c);
+    }
     // wrists and fingers about the hand's own axes
     if (this.hand) for (const S of ["L", "R"]) {
       const H = this.hand[S]; if (!H) continue;
+      for (const nm in H.spread) this._rotAx(nm, H.spread[nm].axis, P["spread" + S] * H.spread[nm].deg);
       this._rotAx("wrist" + S, H.ax["wrist" + S], P["wrist" + S + "Flex"]);
       FINGERS.forEach((f, i) => {
         const c = P[f + S]; if (!c) return; const T = i === 0 ? this.CURL.thumb : this.CURL.finger;

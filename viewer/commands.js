@@ -5,7 +5,7 @@ import { VERTEBRAE } from "./names-ru.js";
 
 export const COMMANDS = {
   pose:      { desc: "Готовая поза. preset: " + Object.keys(PRESETS).join(", ") + "; amount 0..1 (насколько сильно).", args: { preset: "string", amount: "number?" } },
-  set:       { desc: "Точная поза. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Градусы, кроме пальцев рук. Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево; ankleL/R плюс = носок вниз; toesL/R плюс = пальцы стопы поджаты, минус = подняты; wristLFlex/wristRFlex плюс = кисть к ладони. Пальцы рук (thumbL, indexL, middleL, ringL, littleL и то же с R) — степень сгибания 0..1 (1 = в кулак).", args: { "<key>": "number" } },
+  set:       { desc: "Точная поза. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Градусы, кроме пальцев рук. Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево; ankleL/R плюс = носок вниз; forearmL/R — поворот предплечья: плюс = ладонью вниз/назад (пронация), минус = ладонью вверх/вперёд (супинация), 0 = исходное положение, -120 = ладони вперёд при опущенных руках; spreadL/R 0..1 — развести пальцы; toesL/R плюс = пальцы стопы поджаты, минус = подняты; wristLFlex/wristRFlex плюс = кисть к ладони. Пальцы рук (thumbL, indexL, middleL, ringL, littleL и то же с R) — степень сгибания 0..1 (1 = в кулак).", args: { "<key>": "number" } },
   hand:      { desc: "Жест кистью. gesture: " + Object.keys(GESTURES).join(", ") + "; side: left | right | both; amount 0..1.", args: { gesture: "string", side: "string?", amount: "number?" } },
   bend:      { desc: "Согнуть один отдел позвоночника. region: lumbar | thoracic | cervical; flex/side/twist в градусах.", args: { region: "string", flex: "number?", side: "number?", twist: "number?" } },
   layers:    { desc: "Показать/скрыть слои: " + LAYERS.join(", ") + ". show/hide — списки.", args: { show: "string[]?", hide: "string[]?" } },
@@ -102,16 +102,16 @@ export class Commander {
     const t = s.toLowerCase(), num = (t.match(/-?\d+(\.\d+)?/) || [])[0], n = num != null ? +num : null, out = [];
     const part = (t.match(/\b([ctl]\s?\d{1,2}(\s?[-–]\s?[ctls]\s?\d{1,2})?)\b/i) || [])[1];
     if (/сбро|reset|исходн/.test(t)) out.push({ op: "reset" });
-    if (/сним\w* одежд|раздень|без одежд|undress/.test(t)) out.push({ op: "peel", to: "skin" });
+    if (/сним[\wа-яё]* одежд|раздень|без одежд|undress/.test(t)) out.push({ op: "peel", to: "skin" });
     if (/одень|в одежд|dress/.test(t)) out.push({ op: "peel", to: "dressed" });
     if (/рентген|x-?ray|насквозь/.test(t)) out.push({ op: "peel", to: "xray" });
     if (/мышц|muscle/.test(t) && /покаж|show|до/.test(t)) out.push({ op: "peel", to: "muscles" });
     if (/скелет|кост|skeleton|bones/.test(t) && /покаж|show|до|только/.test(t)) out.push({ op: "peel", to: "skeleton" });
     if (/орган|organ|сердц|лёгк|легк|печен|желуд|кишеч/.test(t)) out.push({ op: "peel", to: "organs" });
-    const org = (t.match(/сердц\w*|лёгки\w*|легки\w*|печен\w*|желуд\w*|кишечн\w*|селезён\w*|селезен\w*|мочев\w* пузыр\w*|поджелудочн\w*/) || [])[0];
+    const org = (t.match(/сердц[\wа-яё]*|лёгки[\wа-яё]*|легки[\wа-яё]*|печен[\wа-яё]*|желуд[\wа-яё]*|кишечн[\wа-яё]*|селезён[\wа-яё]*|селезен[\wа-яё]*|мочев[\wа-яё]* пузыр[\wа-яё]*|поджелудочн[\wа-яё]*/) || [])[0];
     if (org) { const map = { "сердц": "сердце", "лёгк": "лёгкие", "легк": "лёгкие", "печен": "Печень", "желуд": "Желудок", "кишечн": "кишечник", "селезён": "Селезёнка", "селезен": "Селезёнка", "мочев": "Мочевой пузырь", "поджелудочн": "Поджелудочная железа" };
       const key = Object.keys(map).find(k => org.startsWith(k)); if (key) { out.push({ op: "highlight", part: map[key] }); out.push({ op: "focus", part: map[key] }); } }
-    if (/наклон\w* вперёд|наклон\w* вперед|forward bend|согни\w* вперёд/.test(t)) out.push({ op: "pose", preset: "forward_bend", amount: n ? Math.min(1, n / 90) : 1 });
+    if (/наклон[\wа-яё]* вперёд|наклон[\wа-яё]* вперед|forward bend|согни[\wа-яё]* вперёд/.test(t)) out.push({ op: "pose", preset: "forward_bend", amount: n ? Math.min(1, n / 90) : 1 });
     else if (/прогн|назад|back bend/.test(t)) out.push({ op: "pose", preset: "back_bend" });
     else if (/вбок|в сторону/.test(t)) out.push({ op: "pose", preset: /лев|left/.test(t) ? "side_bend_left" : "side_bend_right" });
     else if (/поверн|скрут|twist/.test(t)) out.push({ op: "pose", preset: /прав|right/.test(t) ? "twist_right" : "twist_left" });
@@ -120,17 +120,21 @@ export class Commander {
     else if (/на носк|на цыпочк|tiptoe/.test(t)) out.push({ op: "pose", preset: "tiptoe" });
     else if (/сутул|slouch/.test(t)) out.push({ op: "pose", preset: "slouch" });
     else if (/выпрям|стой|stand/.test(t)) out.push({ op: "pose", preset: "stand" });
-    const side = /лев\w* рук|левой|left hand/.test(t) ? "left" : /прав\w* рук|правой|right hand/.test(t) ? "right" : "both";
+    const side = /лев[\wа-яё]* рук|левой|left hand/.test(t) ? "left" : /прав[\wа-яё]* рук|правой|right hand/.test(t) ? "right" : "both";
     if (/кулак|fist/.test(t)) out.push({ op: "hand", gesture: "fist", side });
     else if (/класс|большой палец|thumbs? up|лайк/.test(t)) out.push({ op: "hand", gesture: "thumbs_up", side });
     else if (/(^|[\s,.!])(ок|окей|ok)([\s,.!]|$)/.test(t)) out.push({ op: "hand", gesture: "ok", side });
     else if (/указ|point/.test(t)) out.push({ op: "hand", gesture: "point", side });
     else if (/(^|\s)мир|виктори|peace|(^|\s)v([\s,.!]|$)/.test(t)) out.push({ op: "hand", gesture: "peace", side });
     else if (/разожми|раскрой|открой ладон|open hand/.test(t)) out.push({ op: "hand", gesture: "open", side });
+    else if (/разведи пальц|растопыр|spread/.test(t)) out.push({ op: "hand", gesture: "spread", side });
+    const fs = side === "left" ? ["L"] : side === "right" ? ["R"] : ["L", "R"];
+    if (/ладон[\wа-яё]* (вверх|вперёд|вперед)|супинац|palms? (up|forward)/.test(t)) out.push({ op: "set", ...Object.fromEntries(fs.map(S => ["forearm" + S, -110])) });
+    else if (/ладон[\wа-яё]* (вниз|назад)|пронац|palms? (down|back)/.test(t)) out.push({ op: "set", ...Object.fromEntries(fs.map(S => ["forearm" + S, 60])) });
     if (part) { out.push({ op: "highlight", part: part.replace(/\s/g, "") }); out.push({ op: "focus", part: part.replace(/\s/g, "") }); }
     else if (/позвоночник|spine/.test(t)) { out.push({ op: "highlight", part: "позвоночник" }); }
     else if (/поясни|lumbar/.test(t)) out.push({ op: "highlight", part: "поясничный" }, { op: "focus", part: "поясничный" });
-    else if (/грудн\w* отдел|thoracic/.test(t)) out.push({ op: "highlight", part: "грудной" }, { op: "focus", part: "грудной" });
+    else if (/грудн[\wа-яё]* отдел|thoracic/.test(t)) out.push({ op: "highlight", part: "грудной" }, { op: "focus", part: "грудной" });
     else if (/шейн|cervical/.test(t)) out.push({ op: "highlight", part: "шейный" }, { op: "focus", part: "шейный" });
     if (/сзади|со спины|back view/.test(t)) out.push({ op: "view", angle: "back" });
     else if (/сбоку|side view|профиль/.test(t)) out.push({ op: "view", angle: "left" });

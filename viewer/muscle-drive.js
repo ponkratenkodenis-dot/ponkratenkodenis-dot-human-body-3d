@@ -39,6 +39,9 @@ export class MuscleDrive {
       return best;
     };
 
+    // radius surface points (for muscles that wind around the radius when the forearm turns)
+    const RAD = { L: [], R: [] };
+    for (const L of H.values()) for (const q of L) { if (q[4] === "Radius.l") RAD.L.push(q); else if (q[4] === "Radius.r") RAD.R.push(q); }
     this.M = [];                                      // muscles
     const MH = new Map();                             // hash of muscle surface points -> muscle index (for the skin)
     for (const m of b.layerMeshes.muscles) {
@@ -67,6 +70,7 @@ export class MuscleDrive {
         rec.loc = att.map((a, k) => { const bone = a[3], bi = m.skeleton.bones.indexOf(bone); const inv = bi >= 0 ? m.skeleton.boneInverses[bi] : new THREE.Matrix4().copy(bone.matrixWorld).invert(); return { bone, p: ends[k].clone().applyMatrix4(inv) }; });
         rec.L0 = ends[0].distanceTo(ends[1]);
         this._pinEnds(m, t, tmin, len, att.map(a => a[3]), P, nearestBone);          // tendons go with their bones
+        this._wrap(rec, P, t, tmin, len, RAD);
       }
       this._digits(m, P, nearestBone);
       this._muscleShader(m, rec);
@@ -100,6 +104,31 @@ export class MuscleDrive {
       for (let k = 0; k < 4; k++) { si.setComponent(i, k, top[k] ? top[k][0] : 0); sw.setComponent(i, k, top[k] ? top[k][1] / s : 0); }
     }
     si.needsUpdate = sw.needsUpdate = true;
+  }
+
+  // A muscle ending on the radius winds around it when the forearm turns, like a rope on a drum, so its length changes by
+  // (radius of the bone at the attachment) x (angle). Which way it winds: the attachment patch on the bone surface and the
+  // side where the belly runs (the pronator teres passes in front of the radius, the supinator behind it).
+  _wrap(rec, P, t, tmin, len, RAD) {
+    const fa = this.b.forearm || {};
+    for (let k = 0; k < 2; k++) {
+      const nm = rec.loc[k].bone.name, S = nm === "lowerarm02L" ? "L" : nm === "lowerarm02R" ? "R" : null, F = S && fa[S], R = S && RAD[S];
+      if (!F || !R || !R.length) continue;
+      const n = t.length, near = [], belly = new THREE.Vector3(); let nb = 0;
+      for (let i = 0; i < n; i++) {
+        const tn = (t[i] - tmin) / len, end = k === 0 ? tn < .3 : tn > .7;
+        if (tn > .35 && tn < .65) { belly.x += P[i * 3]; belly.y += P[i * 3 + 1]; belly.z += P[i * 3 + 2]; nb++; }
+        if (!end) continue;
+        let d = 1e9; for (const q of R) { const e = (q[0] - P[i * 3]) ** 2 + (q[1] - P[i * 3 + 1]) ** 2 + (q[2] - P[i * 3 + 2]) ** 2; if (e < d) d = e; }
+        near.push([d, i]);
+      }
+      if (!near.length || !nb) continue;
+      near.sort((a, c) => a[0] - c[0]); const top = near.slice(0, Math.max(3, Math.floor(near.length * .12))), pa = new THREE.Vector3();
+      for (const [, i] of top) pa.add(new THREE.Vector3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2])); pa.multiplyScalar(1 / top.length); belly.multiplyScalar(1 / nb);
+      const d = pa.clone().sub(F.cRoot), rad = d.clone().sub(F.aRoot.clone().multiplyScalar(d.dot(F.aRoot)));
+      const tang = new THREE.Vector3().crossVectors(F.aRoot, rad).normalize(), u = belly.clone().sub(pa); u.sub(F.aRoot.clone().multiplyScalar(u.dot(F.aRoot))).normalize();
+      rec.wrap = { S, r: Math.min(.02, Math.max(.008, rad.length())), s: Math.sign(u.dot(tang)) || 1 }; return;
+    }
   }
 
   // tissue lying on a finger or toe bone (tendons, lumbricals, sheaths) moves with that phalanx
@@ -168,7 +197,9 @@ export class MuscleDrive {
       let target = 0, tension = 0;
       if (on && r.attached) {
         a.copy(r.loc[0].p).applyMatrix4(r.loc[0].bone.matrixWorld); c.copy(r.loc[1].p).applyMatrix4(r.loc[1].bone.matrixWorld);
-        const ratio = a.distanceTo(c) / r.L0;
+        let L = a.distanceTo(c);
+        if (r.wrap) { const F = this.b.forearm[r.wrap.S]; L -= r.wrap.s * r.wrap.r * this.b.pose["forearm" + r.wrap.S] * F.sign * Math.PI / 180; }   // winds toward the origin: shorter
+        const ratio = Math.max(.3, L / r.L0);
         r.ratio = ratio;
         target = Math.min(.45, Math.max(-.25, (1 / Math.sqrt(ratio) - 1) * this.opt.gain));   // constant volume: radius ~ 1/sqrt(length)
         tension = 1 - ratio;                                                                       // + shortened, - stretched
