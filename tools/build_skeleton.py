@@ -180,9 +180,12 @@ for side, S in (("l", "L"), ("r", "R")):
     for word, k in fing.items():
         chain = [f"Proximal phalanx of {word} finger of foot.{side}", f"Middle phalanx of {word} finger of foot.{side}", f"Distal phalanx of {word} finger of foot.{side}"]
         rbones = [f"toe1-1.{S}", None, f"toe1-2.{S}"] if k == 1 else [f"toe{k}-1.{S}", f"toe{k}-2.{S}", f"toe{k}-3.{S}"]
-        for pn, rbn in zip(chain, rbones):
+        for pn, rbn in zip(chain, rbones):           # each phalanx onto its own toe bone (the skin toes lie flat)
             if pn in PARTS and rbn and rbn in RB:
-                BONE[pn] = rbn
+                a = V(pn); ax = a - a.mean(0); u = np.linalg.svd(ax, full_matrices=False)[2][0]; pr = ax @ u
+                e0, e1 = a[np.argmin(pr)], a[np.argmax(pr)]
+                if np.linalg.norm(e0 - ankle) > np.linalg.norm(e1 - ankle): e0, e1 = e1, e0
+                T[pn] = sim(e0, e1, J(rbn), J(rbn, "t")); BONE[pn] = rbn
 
 HIPC = {S: Vector(FP2(apply_np(Mp, _hip0[s][None]))[0]) for s, S in (("l", "L"), ("r", "R"))}
 bpy.context.view_layer.objects.active = rig; rig.select_set(True)
@@ -243,6 +246,58 @@ MORPH = {n: FP2 for n in PELVIS}
 for n in TRUNK: MORPH[n] = (lambda a, f=(FT if n in THORAX else (lambda b: b)): LIFTF(f(a)))
 for n, fn in MORPH.items():
     me = PARTS[n]; a = fn(V(n)); me.vertices.foreach_set("co", a.astype(np.float32).ravel()); me.update()
+
+# ---- keep the skeleton inside the skin: gracile limbs (cross-section only, joints stay), then a smooth push-in
+import contain as CT
+SDFS = CT.SDF(SKIN.v, SKIN.t)
+FIX = {}
+LEG_SEG = [(r"^(Femur|Patella)\.", 0), (r"^(Tibia|Fibula)\.", 1), (r"Talus|Calcaneus|Navicular|Cuboid|cuneiform|metatarsal|Sesamoid bones of foot", 2), (r"finger of foot", 3)]
+ARM_SEG = [(r"^Humerus\.", 0), (r"^(Radius|Ulna)\.", 1), (r"(Scaphoid|Lunate|Triquetrum|Pisiform|Trapezium|Trapezoid|Capitate|Hamate) bone|metacarpal", 2), (r"phalanx of \w+ finger of hand", 3)]
+CONTAIN_REPORT = {}
+if os.environ.get("HB_CONTAIN", "1") != "0":
+    for side, S in (("l", "L"), ("r", "R")):
+        for nm, Q, rules in (("leg", [J(f"upperleg01.{S}"), J(f"lowerleg01.{S}"), J(f"foot.{S}"), J(f"toe2-1.{S}"), J(f"toe2-3.{S}", "t")], LEG_SEG),
+                             ("arm", [J(f"upperarm01.{S}"), J(f"lowerarm01.{S}"), J(f"wrist.{S}"), J(f"finger3-1.{S}"), J(f"finger3-3.{S}", "t")], ARM_SEG)):
+            Q = np.array([list(q) for q in Q]); parts = {}
+            for n in PARTS:
+                if not n.endswith("." + side) or re.search("ligament", n, re.I): continue
+                for rx, sgi in rules:
+                    if re.search(rx, n): parts[n] = sgi; break
+            Ps, sg = [], []
+            for n, sgi in parts.items():
+                a = V(n); a = a[:: max(1, len(a) // 300)]; Ps.append(a); sg.append(np.full(len(a), sgi))
+            W = CT.chain_fit(np.vstack(Ps), np.concatenate(sg), Q, SDFS, name=f"{nm}.{side}")
+            CONTAIN_REPORT[f"{nm}.{side}"] = W.round(3).tolist()
+            for n, sgi in parts.items():
+                FIX[n] = (lambda a, sgi=sgi, Q=Q, W=W: CT.chain_apply(a, np.full(len(a), sgi), Q, W))
+    # scapula: the rib cage was fitted narrower front-to-back than the shoulder girdle; turn the scapula about the
+    # shoulder joint until it lies on the ribs inside the skin (a push would bend the flat bone)
+    from mathutils.bvhtree import BVHTree as _BVH
+    _rv, _rf, _o = [], [], 0
+    for n in PARTS:
+        if re.search(r" rib\.[lr]$|Costal cartilage", n):
+            me = PARTS[n]; _rv += [tuple(v.co) for v in me.vertices]; _rf += [tuple(i + _o for i in p.vertices) for p in me.polygons]; _o += len(me.vertices)
+    RIBS_BVH = _BVH.FromPolygons(_rv, _rf)
+    for side, S in (("l", "L"), ("r", "R")):
+        n = f"Scapula.{side}"
+        if n in PARTS:
+            FIX[n] = CT.rigid_fit(V(n)[::3], np.array(J(f"upperarm01.{S}")), SDFS, RIBS_BVH, name=n)
+    for n, fn in FIX.items():
+        me = PARTS[n]; me.vertices.foreach_set("co", fn(V(n)).astype(np.float32).ravel()); me.update()
+    HEADP = {n for n in PARTS if T.get(n) is Mh or n == "Hyoid bone"}
+    PUSH = {}
+    for n in PARTS:
+        if n in HEADP or re.search(r"ligament|disc|Nucleus", n, re.I): continue
+        a = V(n); smp = a[:: max(1, len(a) // 1200)]; d, _ = SDFS(smp)
+        if (d < .0015).any():
+            pf = CT.PushField(smp, SDFS); PUSH[n] = pf
+            print("CONTAIN push", n, f"{int((d < 0).sum())}/{len(d)} out, worst {max(0, -d.min()) * 1000:.0f} mm -> {pf.n_bad} out")
+            me = PARTS[n]; me.vertices.foreach_set("co", pf(a).astype(np.float32).ravel()); me.update()
+    CONTAIN_REPORT["pushed"] = sorted(PUSH)
+    for n in set(FIX) | set(PUSH):
+        f0, f1, f2 = MORPH.get(n, lambda a: a), FIX.get(n, lambda a: a), PUSH.get(n, lambda a: a)
+        MORPH[n] = (lambda a, f0=f0, f1=f1, f2=f2: f2(f1(f0(a))))
+    FEM_REPORT["contain"] = CONTAIN_REPORT
 
 # ---- spine chain: rig bones with their z-range after the fit
 CHAIN = ["root", "spine05", "spine04", "spine03", "spine02", "spine01", "neck01", "neck02", "neck03", "head"]
