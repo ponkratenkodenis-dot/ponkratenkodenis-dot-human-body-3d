@@ -26,7 +26,7 @@ export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "n
   "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
   "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR", "forearmL", "forearmR", "spreadL", "spreadR",
   "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR",
-  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "breath"];
+  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "breath"];
 // face keys are kept too when a whole-body preset is chosen
 export const FACE_KEYS = ["jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY"];
 // expressions: jaw opening (deg), smile (+ corners up and out, - down), brows (+ up, - down and together), blinks 0..1
@@ -61,6 +61,34 @@ export const PRESETS = {
   cat: { spineFlex: 30, neckFlex: 25 }, cow: { spineFlex: -20, neckFlex: -25 },
   tiptoe: { ankleL: 40, ankleR: 40, toesL: -40, toesR: -40 }
 };
+
+// exercises: frames of { pose, amount, set, face, hand: {gesture, side}, dur (s, transition), hold (s) }; loop = repetitions;
+// program = several exercises one after another
+const ARMS_DOWN = { armLRaise: -38, armRRaise: -38, elbowL: -20, elbowR: -20 };
+export const EXERCISES = {
+  squats: { ru: "Приседания", loop: 5, frames: [{ pose: "stand", dur: 1.2 }, { pose: "squat", amount: .85, dur: 1.6, hold: .4 }], end: { pose: "stand", dur: 1.4 } },
+  forward_bend: { ru: "Наклон вперёд с растяжкой", loop: 2, frames: [{ pose: "stand", dur: 1.2, hold: .3 }, { pose: "forward_bend", dur: 2.6, hold: 2 }], end: { pose: "stand", dur: 2 } },
+  side_bends: { ru: "Наклоны в стороны", loop: 3, frames: [{ pose: "side_bend_left", dur: 1.8, hold: .6 }, { pose: "side_bend_right", dur: 2.4, hold: .6 }], end: { pose: "stand", dur: 1.5 } },
+  trunk_rotation: { ru: "Повороты корпуса", loop: 3, frames: [{ pose: "twist_left", dur: 1.8, hold: .5 }, { pose: "twist_right", dur: 2.4, hold: .5 }], end: { pose: "stand", dur: 1.5 } },
+  neck_mobility: { ru: "Мобильность шеи", loop: 2, frames: [{ set: { neckFlex: 35 }, dur: 1.6, hold: .6 }, { set: { neckFlex: -25 }, dur: 2, hold: .6 }, { set: { neckFlex: 0, neckTwist: 60 }, dur: 2, hold: .6 },
+    { set: { neckTwist: -60 }, dur: 2.6, hold: .6 }, { set: { neckTwist: 0, neckSide: 30 }, dur: 2, hold: .6 }, { set: { neckSide: -30 }, dur: 2.4, hold: .6 }], end: { pose: "stand", dur: 1.5 } },
+  cat_cow: { ru: "Кошка — корова (стоя)", loop: 4, frames: [{ pose: "cat", dur: 2, hold: .6 }, { pose: "cow", dur: 2.4, hold: .6 }], end: { pose: "stand", dur: 1.5 } },
+  calf_raises: { ru: "Подъёмы на носки", loop: 6, frames: [{ pose: "stand", dur: 1 }, { pose: "tiptoe", dur: 1, hold: .5 }], end: { pose: "stand", dur: 1 } },
+  arm_raises: { ru: "Подъём рук", loop: 4, frames: [{ pose: "anatomical", dur: 1.6, hold: .3 }, { pose: "arms_up", dur: 2, hold: .6 }], end: { pose: "stand", dur: 1.6 } },
+  march: { ru: "Марш с высоким подниманием колен", loop: 6, frames: [{ set: { ...ARMS_DOWN, legLForward: 25, kneeL: 90, legRForward: 0, kneeR: 0, armRForward: 35, armLForward: -20 }, dur: .7 },
+    { set: { ...ARMS_DOWN, legRForward: 25, kneeR: 90, legLForward: 0, kneeL: 0, armLForward: 35, armRForward: -20 }, dur: .7 }], end: { pose: "stand", dur: 1.2 } },
+  hand_exercise: { ru: "Кулак — разведённые пальцы", loop: 5, frames: [{ hand: { gesture: "fist" }, dur: .8, hold: .3 }, { hand: { gesture: "spread" }, dur: .8, hold: .3 }], end: { hand: { gesture: "relaxed" }, dur: .8 } },
+  lower_back: { ru: "Комплекс для поясницы", program: ["cat_cow", "side_bends", "trunk_rotation", "forward_bend"] }
+};
+const bump = (p, c, w) => { let d = Math.abs(p - c); d = Math.min(d, 1 - d); return Math.exp(-((d / w) ** 2)); };
+// one leg over a gait cycle (phase 0 = heel strike), degrees; from typical sagittal gait curves
+export const GAIT = { hipMid: 1, hipAmp: 18 };   // thigh +19° / -17°: heel touches at heel strike while the other foot is on its ball (in place)
+export function gaitLeg(p) {
+  const hip = GAIT.hipMid + GAIT.hipAmp * Math.cos(2 * Math.PI * p);                // thigh: forward at heel strike, back at push-off
+  const knee = 4 + 14 * bump(p, .13, .07) + 56 * bump(p, .72, .11);                   // loading response, then swing
+  const ankle = -14 * bump(p, 0, .06) + 28 * bump(p, .6, .07) - 6 * bump(p, .85, .08); // toes up at heel strike, push-off
+  return { hip, knee, ankle };
+}
 
 export class HumanBody extends EventTarget {
   PALM = -1;     // which side of the hand is the palm: checked numerically (fingertips of a fist move toward the anatomical palm, dev/palm.js)
@@ -184,6 +212,7 @@ export class HumanBody extends EventTarget {
       if (k >= 0) { const si = ul.geometry.attributes.skinIndex, sw = ul.geometry.attributes.skinWeight; for (let i = 0; i < si.count; i++) { si.setXYZW(i, k, 0, 0, 0); sw.setXYZW(i, 1, 0, 0, 0); } si.needsUpdate = sw.needsUpdate = true; }
     }
     this._balls = ["toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean);
+    this._feetRest = ["footL", "footR", "toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean).map(b => [b, b.getWorldPosition(new THREE.Vector3()).y]);
     this._ballRest = this._ballPos();
   }
   _ballPos() { const v = new THREE.Vector3(), s = new THREE.Vector3(); (this._balls || []).forEach(f => s.add(f.getWorldPosition(v))); return s.multiplyScalar(1 / ((this._balls || []).length || 1)); }
@@ -191,6 +220,56 @@ export class HumanBody extends EventTarget {
   _rotAx(b, axis, deg) {
     const B = this.bones[b]; if (!B || !axis || !deg) return;
     this._q.setFromAxisAngle(axis, deg * D2R); this._q2.copy(B.userData.pri).multiply(this._q).multiply(B.userData.pr); B.quaternion.premultiply(this._q2);
+  }
+  /* ---------------- motion: sequences, exercises, walking ---------------- */
+  // the pose a frame describes, starting from the state before it
+  _frameState(prev, f) {
+    const save = this.target; this.target = { ...prev };
+    if (f.pose) this.preset(f.pose, f.amount == null ? 1 : f.amount);
+    if (f.set) this.setPose(f.set);
+    if (f.face) this.expression(f.face, f.faceAmount == null ? 1 : f.faceAmount);
+    if (f.hand) this.gesture(f.hand.gesture, f.hand.side || "both", f.hand.amount == null ? 1 : f.hand.amount);
+    const out = this.target; this.target = save; return out;
+  }
+  // play frames (see EXERCISES for the format); loop = how many times; speed > 1 faster
+  animate(frames, { loop = 1, speed = 1, end = null, name = "custom" } = {}) {
+    if (!Array.isArray(frames) || !frames.length) throw new Error("frames: a non-empty list");
+    this.walking = null; const segs = []; let st = { ...this.target };
+    const push = f => { const nx = this._frameState(st, f); segs.push({ a: st, b: nx, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0) }); st = nx; };
+    for (let r = 0; r < Math.max(1, Math.min(50, loop)); r++) frames.forEach(push);
+    if (end) push(end);
+    this.anim = { segs, t: 0, speed: Math.max(.1, +speed || 1), total: segs.reduce((s, g) => s + g.dur + g.hold, 0), name };
+    return { ok: true, name, seconds: +(this.anim.total / this.anim.speed).toFixed(1) };
+  }
+  exercise(name, reps, speed = 1) {
+    const E = EXERCISES[name]; if (!E) throw new Error("unknown exercise " + name);
+    if (E.program) {           // several exercises in a row: one long frame list
+      const frames = []; for (const n of E.program) { const X = EXERCISES[n]; for (let r = 0; r < X.loop; r++) frames.push(...X.frames); if (X.end) frames.push(X.end); }
+      return this.animate(frames, { loop: reps || 1, speed, end: { pose: "stand", dur: 1.5 }, name });
+    }
+    return this.animate(E.frames, { loop: reps || E.loop, speed, end: E.end, name });
+  }
+  // walking in place (as on a treadmill): legs follow typical gait angles, arms swing against the legs
+  walk(on = true, speed = 1) { this.anim = null; this.walking = on ? { phase: 0, speed: Math.max(.2, Math.min(2.5, +speed || 1)) } : null; if (!on) this.preset("stand"); return { ok: true, walking: !!on }; }
+  stopMotion() { const was = !!(this.anim || this.walking); this.anim = null; this.walking = null; return { ok: true, stopped: was }; }
+  _motion(dt) {
+    if (this.anim) {
+      const A = this.anim; A.t += dt * A.speed; let t = A.t, i = 0;
+      while (i < A.segs.length && t > A.segs[i].dur + A.segs[i].hold) { t -= A.segs[i].dur + A.segs[i].hold; i++; }
+      const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
+      for (const k of POSE_KEYS) if (k !== "breath") { const v = g.a[k] + (g.b[k] - g.a[k]) * e; this.pose[k] = this.target[k] = v; }
+      if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
+    }
+    if (this.walking) {
+      const W = this.walking; W.phase = (W.phase + dt * .95 * W.speed) % 1; const o = { ...ARMS_DOWN, hipFlex: 0, spineFlex: 3 };
+      for (const [S, p] of [["L", W.phase], ["R", (W.phase + .5) % 1]]) {
+        const g = gaitLeg(p); o["knee" + S] = g.knee; o["leg" + S + "Forward"] = g.hip - .75 * g.knee; o["ankle" + S] = g.ankle;
+        o["arm" + S + "Forward"] = -9 * Math.min(1.6, W.speed) * Math.cos(2 * Math.PI * p); o["elbow" + S] = -32 + 12 * Math.max(0, -Math.cos(2 * Math.PI * p));
+      }
+      o.spineTwist = 5 * Math.cos(2 * Math.PI * W.phase); o.neckTwist = -o.spineTwist * .8;
+      for (const S of ["L", "R"]) { o["thumb" + S] = .1; o["index" + S] = .15; o["middle" + S] = .2; o["ring" + S] = .25; o["little" + S] = .3; }   // relaxed hands
+      for (const k in o) this.pose[k] = this.target[k] = o[k];
+    }
   }
   // move a bone by a vector given in the body's frame of the rest pose (metres)
   _move(b, x, y, z) {
@@ -352,10 +431,10 @@ export class HumanBody extends EventTarget {
     this._face(P);
     // legs: undo the hip hinge so they stay upright, then hip flexion/abduction, knee, and a foot that stays flat
     for (const [S, K, A] of [["L", P.kneeL, P.hipLRaise], ["R", P.kneeR, P.hipRRaise]]) {
-      const th = K * .75;
-      this._rot("upperleg01" + S, -P.hipFlex - th, 0, S === "L" ? -A : A);
+      const th = K * .75, LF = P["leg" + S + "Forward"];                 // LF: the thigh forward (hip flexion of one leg), as in a step
+      this._rot("upperleg01" + S, -P.hipFlex - th - LF, 0, S === "L" ? -A : A);
       this._rot("lowerleg01" + S, K, 0, 0);
-      this._rot("foot" + S, -(K - th) + P["ankle" + S], 0, 0);           // + ankle: plantar flexion (point the foot)
+      this._rot("foot" + S, -(K - th) + LF + P["ankle" + S], 0, 0);      // + ankle: plantar flexion (point the foot), relative to a level foot
       const t = P["toes" + S];                                            // + curl the toes down, - lift them (as on tiptoe)
       if (t) for (let k = 1; k <= 5; k++) { this._rot(`toe${k}-1${S}`, t, 0, 0); if (t > 0) { this._rot(`toe${k}-2${S}`, t * .8, 0, 0); this._rot(`toe${k}-3${S}`, t * .5, 0, 0); } }
     }
@@ -386,10 +465,18 @@ export class HumanBody extends EventTarget {
     }
     // keep the feet planted: move the whole body so the feet stay where they stood
     this.root.position.set(0, 0, 0); this.root.updateMatrixWorld(true);
-    // pointing the feet (tiptoe): the balls of the feet stay on the floor instead of the ankles
+    // feet on the floor: across the floor the feet stay where they stood (the balls of the feet when pointing them, as on
+    // tiptoe); up and down, the lowest point of either foot (heel or ball) touches the floor, so a lifted leg in a step
+    // or a march does not pull the body up
     const w = Math.min(1, Math.max(0, Math.max(P.ankleL, P.ankleR) / 15)), f = this._footPos(), rest = this._footRest.clone();
     if (w > 0 && this._ballRest) { f.lerp(this._ballPos(), w); rest.lerp(this._ballRest, w); }
-    this.root.position.set(rest.x - f.x, rest.y - f.y, rest.z - f.z);
+    let dy = rest.y - f.y;
+    if (this._feetRest) {
+      const v = new THREE.Vector3(); let lo = Infinity;
+      this._feetRest.forEach(([b, r]) => { lo = Math.min(lo, b.getWorldPosition(v).y - r); });
+      if (isFinite(lo)) dy = -lo;
+    }
+    this.root.position.set(rest.x - f.x, dy, rest.z - f.z);
   }
   // face: the jaw turns about the jaw joint; eyelids turn about the eye centre; mouth corners and brows are moved
   // (millimetres, in the body frame: x to the body's left, y up, z forward); the eyes turn for the gaze
@@ -409,8 +496,9 @@ export class HumanBody extends EventTarget {
     }
   }
   frame() {
-    const dt = Math.min(.05, this.clock.getDelta()); this.t += dt;
+    const raw = Math.min(.25, this.clock.getDelta()), dt = Math.min(.05, raw); this.t += raw;   // motion keeps real time on slow devices
     if (this.root) {
+      this._motion(raw);
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       this._applyPose();
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }

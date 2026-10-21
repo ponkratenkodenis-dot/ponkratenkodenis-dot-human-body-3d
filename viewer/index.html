@@ -112,6 +112,7 @@ code,.mono{font-family:var(--f-mono)}
     </section>
     <section class="pane" data-pane="pose" hidden>
       <div class="group"><span class="label">Готовые позы</span><div class="chips" id="presets"></div></div>
+      <div class="group"><span class="label">Движение</span><div class="chips" id="motions"></div></div>
       <div class="group"><span class="label">Лицо</span><div class="chips" id="faces"></div></div>
       <div class="group"><span class="label">Кисти</span><div class="chips" id="gestures"></div></div>
       <div class="group" id="sliders"><span class="label">Точно, в градусах</span></div>
@@ -153,7 +154,7 @@ code,.mono{font-family:var(--f-mono)}
 
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 <script type="module">
-import { HumanBody, LAYERS, PRESETS, GESTURES, EXPRESSIONS } from "./body.js";
+import { HumanBody, LAYERS, PRESETS, GESTURES, EXPRESSIONS, EXERCISES } from "./body.js";
 import { Commander, TOOL, COMMANDS } from "./commands.js";
 import { VERTEBRAE, ruName } from "./names-ru.js";
 const $ = id => document.getElementById(id);
@@ -192,6 +193,10 @@ document.querySelectorAll("#peel .chip").forEach(c => c.onclick = () => { body.p
 /* poses */
 const PNAME = { stand: "Стойка", anatomical: "Анатомическая", forward_bend: "Наклон вперёд", back_bend: "Прогиб назад", side_bend_left: "Вбок влево", side_bend_right: "Вбок вправо",
   twist_left: "Поворот влево", twist_right: "Поворот вправо", arms_up: "Руки вверх", t_pose: "Руки в стороны", squat: "Присед", slouch: "Сутулость", look_down: "Голову вниз", look_up: "Голову вверх", cat: "Кошка", cow: "Корова", tiptoe: "На носках" };
+{ const mk = (txt, fn, cmd) => { const b = document.createElement("button"); b.className = "chip"; b.textContent = txt; b.onclick = () => { fn(); log(cmd); }; $("motions").append(b); };
+  mk("Ходьба", () => body.walk(true), { op: "walk", on: true });
+  for (const [k, v] of Object.entries(EXERCISES)) mk(v.ru, () => body.exercise(k), { op: "exercise", name: k });
+  mk("Стоп", () => { body.stopMotion(); body.preset("stand"); syncSliders(); }, { op: "stop" }); }
 const FNAME = { neutral: "Спокойно", smile: "Улыбка", laugh: "Смех", surprise: "Удивление", sad: "Грусть", angry: "Гнев", blink: "Закрыть глаза", wink_left: "Подмигнуть", wink_right: "Подмигнуть правым", mouth_open: "Открыть рот" };
 for (const f of Object.keys(EXPRESSIONS)) { const b = document.createElement("button"); b.className = "chip"; b.textContent = FNAME[f] || f; b.onclick = () => { body.expression(f); log({ op: "face", expression: f }); }; $("faces").append(b); }
 const GNAME = { spread: "Развести пальцы", open: "Ладонь", relaxed: "Расслабленно", fist: "Кулак", point: "Указать", thumbs_up: "Класс", ok: "ОК", peace: "Мир", pinch: "Щепоть", grip: "Хват" };
