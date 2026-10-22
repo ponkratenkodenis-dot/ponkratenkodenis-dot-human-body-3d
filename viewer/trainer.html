@@ -63,6 +63,7 @@ body.min .side, body.min #ex{display:none}
 <header class="top">
   <h1 id="title">Упражнение</h1>
   <span class="rep" id="rep"></span>
+  <span class="rep" id="disc" hidden></span>
   <div class="say" id="say" aria-live="polite"></div>
   <p class="goal" id="goal"></p>
 </header>
@@ -147,6 +148,8 @@ $("stop").onclick = () => { body.stopMotion(); body.preset("stand"); setState("i
 $("ex").onchange = () => { showInfo($("ex").value); if (state !== "idle") start(); };
 $("voice").onclick = () => { unlocked = true; setVoice(!voiceOn); if (voiceOn) speak($("say").textContent || "Голос включён"); };
 $("layer").onclick = () => setLayer(!layerOn);
+// ?spine=1: colour the spine and show the estimated L4-L5 disc pressure (Wilke 1999)
+if (Q.get("spine") === "1") { $("disc").hidden = false; setInterval(() => { if (!body.root) return; const d = body.spineState().disc; $("disc").textContent = `диск L4–L5 ≈ ${d.pctOfStanding} % от стоя (${d.basis.startsWith("измерено") ? "измерено" : "оценка"})`; }, 300); }
 
 body.addEventListener("motion", e => {
   const d = e.detail;
@@ -168,6 +171,7 @@ addEventListener("message", e => {
 try {
   await body.load(p => ($("prog").style.width = Math.round(p * 100) + "%"));
   $("loading").hidden = true; body.peel("skin"); body.live = true; showInfo($("ex").value); setLayer(layerOn);
+  if (Q.get("spine") === "1") body.showSpine(true);
   if (Q.get("autoplay") === "1") start();
 } catch (err) { $("loading").querySelector("div").textContent = "Не удалось загрузить модель: " + (err.message || err); }
 </script>

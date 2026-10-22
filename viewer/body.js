@@ -248,6 +248,7 @@ export class HumanBody extends EventTarget {
       if (k >= 0) { const si = ul.geometry.attributes.skinIndex, sw = ul.geometry.attributes.skinWeight; for (let i = 0; i < si.count; i++) { si.setXYZW(i, k, 0, 0, 0); sw.setXYZW(i, 1, 0, 0, 0); } si.needsUpdate = sw.needsUpdate = true; }
     }
     this._balls = ["toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean);
+    this._trunkRest = this.bones.neck01.getWorldPosition(new THREE.Vector3()).sub(this.bones.root.getWorldPosition(new THREE.Vector3())).normalize();
     const C = { root: .1, spine04: .1, spine03: .1, spine02: .1, spine01: .1, neck02: .055, head: .1, upperarm01L: .055, upperarm01R: .055, lowerarm01L: .035, lowerarm01R: .035,
       wristL: .025, wristR: .025, "finger3-1L": .012, "finger3-1R": .012, lowerleg01L: .05, lowerleg01R: .05, upperleg02L: .075, upperleg02R: .075, footL: .055, footR: .055, "toe2-1L": .015, "toe2-1R": .015, "toe2-3L": .01, "toe2-3R": .01 };
     this._contacts = Object.entries(C).filter(([n]) => this.bones[n]).map(([n, r]) => [this.bones[n], r]);
@@ -259,6 +260,67 @@ export class HumanBody extends EventTarget {
   _rotAx(b, axis, deg) {
     const B = this.bones[b]; if (!B || !axis || !deg) return;
     this._q.setFromAxisAngle(axis, deg * D2R); this._q2.copy(B.userData.pri).multiply(this._q).multiply(B.userData.pr); B.quaternion.premultiply(this._q2);
+  }
+  /* ---------------- spine: what each region does now, and the load on the L4-L5 disc ---------------- */
+  // angles per region from the pose (the share of each movement that the rig's segments carry)
+  spineState() {
+    const P = this.pose, sum = (o, ks) => ks.reduce((a, k) => a + (o[k] || 0), 0), rb = this.regionBend || {};
+    const R = {
+      lumbar: { flex: P.spineFlex * sum(SHARE.flex, REGION.lumbar) + ((rb.lumbar || {}).flex || 0), side: P.spineSide * sum(SHARE.side, REGION.lumbar) + ((rb.lumbar || {}).side || 0), twist: P.spineTwist * sum(SHARE.twist, REGION.lumbar) + ((rb.lumbar || {}).twist || 0) },
+      thoracic: { flex: P.spineFlex * sum(SHARE.flex, REGION.thoracic) + ((rb.thoracic || {}).flex || 0), side: P.spineSide * sum(SHARE.side, REGION.thoracic) + ((rb.thoracic || {}).side || 0), twist: P.spineTwist * sum(SHARE.twist, REGION.thoracic) + ((rb.thoracic || {}).twist || 0) },
+      cervical: { flex: P.neckFlex + ((rb.cervical || {}).flex || 0), side: P.neckSide + ((rb.cervical || {}).side || 0), twist: P.neckTwist + ((rb.cervical || {}).twist || 0) }
+    };
+    for (const k in R) for (const a in R[k]) R[k][a] = Math.round(R[k][a]);
+    return { regions: R, disc: this.discLoad(R.lumbar) };
+  }
+  // L4-L5 intradiscal pressure for the current posture without a load in the hands, from in vivo measurements
+  // (Wilke et al. 1999, Spine 24(8):755-762; one 45-year-old man): lying 0.10 (side 0.12), relaxed standing 0.50,
+  // standing flexed forward 1.10, extended 0.60, lateral bending up to 0.60, axial rotation up to 0.70 MPa.
+  // Between those postures the value is interpolated: an estimate, not a measurement.
+  discLoad(L) {
+    this.root.updateMatrixWorld(true);
+    const pel = this.bones.root.getWorldPosition(new THREE.Vector3()), nk = this.bones.neck01.getWorldPosition(new THREE.Vector3()), cur = nk.sub(pel).normalize();
+    // tilt of the trunk away from this model's own upright standing line (its rest pose leans ~7° forward)
+    const rest = this._trunkRest || new THREE.Vector3(0, 1, 0), tilt = new THREE.Quaternion().setFromUnitVectors(rest, new THREE.Vector3(0, 1, 0)), up = cur.clone().applyQuaternion(tilt);
+    const front = new THREE.Vector3(0, 0, 1).applyQuaternion(this.root.quaternion); front.y = 0; front.normalize(); const right = new THREE.Vector3(-front.z, 0, front.x);
+    const incl = Math.acos(Math.max(-1, Math.min(1, up.y))) * 180 / Math.PI;
+    const sag = Math.atan2(up.dot(front), Math.max(1e-6, up.y)) * 180 / Math.PI, lat = Math.abs(Math.atan2(up.dot(right), Math.max(1e-6, up.y)) * 180 / Math.PI);  // forward(+)/back, sideways
+    const lying = this.lying || 0, side = Math.abs(this.pose.bodyRoll) > 45;
+    const flexDeg = Math.max(0, sag), extDeg = Math.max(Math.max(0, -sag), Math.max(0, -L.flex));
+    const stand = .5 + .6 * Math.sin(Math.min(90, flexDeg) * D2R) + .1 * Math.min(1, extDeg / 25) + .1 * Math.min(1, Math.max(Math.abs(L.side), lat) / 25) + .2 * Math.min(1, Math.abs(L.twist) / 15);
+    const lie = side ? .12 : .10, mpa = stand * (1 - lying) + lie * lying;
+    const measured = (lying > .95 && Math.abs(this.pose.spineFlex) < 5 && Math.abs(this.pose.legLForward) < 5 && this.pose.kneeL < 10) ? (side ? "лёжа на боку" : "лёжа")
+      : (lying < .05 && incl < 6 && Math.abs(L.side) < 4 && Math.abs(L.twist) < 4) ? "стоя" : (lying < .05 && flexDeg > 60 && lat < 10) ? "наклон вперёд стоя" : null;
+    return { mpa: Math.round(mpa * 100) / 100, pctOfStanding: Math.round(mpa / .5 * 100), trunkIncline: Math.round(incl), basis: measured ? "измерено: " + measured : "оценка между измеренными позами",
+      source: "Wilke et al. 1999, Spine 24(8):755–762 (один испытуемый, диск L4–L5)" };
+  }
+  // colour the spine on the model: amber = flexion, teal = extension, violet = bending to the side or twisting; the L4-L5 disc by its load
+  showSpine(on = true) {
+    this.spineOn = !!on;
+    if (!on) { for (const m of this._spineMeshes || []) if (!this.hl.has(m)) { m.material.emissive && m.material.emissive.setRGB(0, 0, 0); if (m.userData.baseColor) m.material.color.copy(m.userData.baseColor); } return { ok: true, spine: false }; }
+    if (!this._spineMeshes) {
+      this._spineMeshes = [];
+      for (const [n, m] of this.parts) {
+        const v = n.match(/^Vertebra ([CTL])\d+$|^(Atlas|Axis)/), d = n.match(/^Intervertebral disc ([CTL])\d+-/);
+        const r = v ? (v[2] ? "C" : v[1]) : d ? d[1] : null; if (!r) continue;
+        m.userData.spineRegion = { C: "cervical", T: "thoracic", L: "lumbar" }[r]; m.userData.baseColor = m.material.color.clone(); if (n === "Intervertebral disc L4-L5") m.userData.isL45 = true; this._spineMeshes.push(m);
+      }
+    }
+    // the spine is seen through a faint skin, without the muscles in front of it
+    this.peel("skeleton"); this.layerOn.skin = true; this.opacity.skin = .12; this.depth = null; this.applyLayers();
+    return { ok: true, spine: true };
+  }
+  _paintSpine() {
+    if (!this.spineOn || !this._spineMeshes) return;
+    const S = this.spineState(), amber = new THREE.Color(0xd98e04), teal = new THREE.Color(0x13a3b4), violet = new THREE.Color(0x8a5cd6), c = new THREE.Color();
+    for (const m of this._spineMeshes) {
+      if (this.hl.has(m) || !m.material.emissive) continue;
+      const base = m.userData.baseColor;
+      if (m.userData.isL45) { const t = Math.min(1, Math.max(0, (S.disc.mpa - .1) / 1.0)); c.setRGB(.2 + .8 * t, .7 - .45 * t, .25 - .2 * t); m.material.color.copy(c); m.material.emissive.copy(c).multiplyScalar(.6); continue; }
+      const R = S.regions[m.userData.spineRegion], f = Math.abs(R.flex) / 30, o = Math.max(Math.abs(R.side) / 20, Math.abs(R.twist) / 25), k = Math.min(1, Math.max(f, o));
+      if (k < .08) { m.material.emissive.setRGB(0, 0, 0); m.material.color.copy(base); continue; }
+      c.copy(o > f ? violet : R.flex > 0 ? amber : teal); m.material.color.copy(base).lerp(c, .35 + .55 * k); m.material.emissive.copy(c).multiplyScalar(.45 * k);
+    }
   }
   /* ---------------- motion: sequences, exercises, walking ---------------- */
   // the pose a frame describes, starting from the state before it
@@ -580,6 +642,7 @@ export class HumanBody extends EventTarget {
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       this._applyPose();
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
+      this._paintSpine();
       this.floor.material.opacity = .8 * (this.lying || 0); this.floor.visible = this.lying > .01;
       const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); }
     }

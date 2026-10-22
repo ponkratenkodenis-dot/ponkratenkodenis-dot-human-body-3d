@@ -11,6 +11,8 @@ export const COMMANDS = {
   animate:   { desc: "Своя последовательность: frames — список кадров { pose?, amount?, set?, face?, hand?: {gesture, side}, dur (секунды перехода), hold (секунды удержания) }; loop — повторы; speed. Кадр меняет только то, что в нём указано.", args: { frames: "object[]", loop: "number?", speed: "number?" } },
   exercise_info: { desc: "Справка по упражнению для объяснения пользователю: цель, работающие мышцы (имена частей модели и по-русски), подсказки по технике, осторожность.", args: { name: "string" } },
   show_muscles: { desc: "Подсветить мышцы, которые работают в упражнении (и показать слой мышц).", args: { name: "string" } },
+  spine:     { desc: "Позвоночник: show true/false — раскрасить на модели (янтарный сгибание, бирюзовый разгибание, фиолетовый наклон вбок/скручивание, диск L4–L5 по давлению). Без show — только вернуть состояние.", args: { show: "boolean?" } },
+  spine_state: { desc: "Что сейчас делает каждый отдел позвоночника (градусы сгибания, наклона, поворота) и оценка давления в диске L4–L5 по измерениям Wilke 1999 (МПа и % от стояния; помечено, измерено это или оценка).", args: {} },
   walk:      { desc: "Ходьба на месте (как на дорожке): on true/false, speed 0.2..2.5.", args: { on: "boolean?", speed: "number?" } },
   stop:      { desc: "Остановить упражнение, анимацию или ходьбу.", args: {} },
   face:      { desc: "Выражение лица. expression: " + Object.keys(EXPRESSIONS).join(", ") + "; amount 0..1. Точно через set: jawOpen (градусы), smile (-1..1), brows (-1..1), blinkL/blinkR (0..1), lookX/lookY (градусы взгляда: плюс = влево от модели / вверх).", args: { expression: "string", amount: "number?" } },
@@ -79,6 +81,8 @@ export class Commander {
       case "animate": return b.animate(c.frames, { loop: c.loop || 1, speed: c.speed || 1 });
       case "exercise_info": { const I = INFO[c.name]; return I ? { ok: true, name: c.name, ...I, muscles: I.muscles.map(([n, ru]) => ({ name: n, ru })), note: NOTE } : { ok: false, error: "unknown exercise " + c.name }; }
       case "show_muscles": { const I = INFO[c.name]; if (!I) return { ok: false, error: "unknown exercise " + c.name }; if (!b.layerOn.muscles) b.peel("muscles"); return { ok: true, count: b.highlightMany(I.muscles.map(m => m[0])) }; }
+      case "spine": { if (c.show != null) b.showSpine(c.show); return { ok: true, show: !!b.spineOn, ...b.spineState() }; }
+      case "spine_state": return { ok: true, ...b.spineState() };
       case "walk": return b.walk(c.on !== false, c.speed || 1);
       case "stop": return b.stopMotion();
       case "face": return { ok: true, set: b.expression(c.expression, c.amount == null ? 1 : c.amount) };
@@ -130,6 +134,7 @@ export class Commander {
     else if (/ляг на бок|на боку/.test(t)) out.push({ op: "pose", preset: "lie_side" });
     else if (/четвереньк/.test(t)) out.push({ op: "pose", preset: "all_fours" });
     else if (/встань(?! на (носк|цыпочк))|подними[\wа-яё]*сь|stand up/.test(t)) out.push({ op: "pose", preset: "stand" });
+    if (/нагрузк[\wа-яё]* на (позвоночник|поясниц|диск)|давлени[\wа-яё]* в диск/.test(t)) out.push({ op: "spine", show: true });
     if (/(иди|идти|шагай|ходьб|пройдись|walk)/.test(t)) return [Object.assign({ cmd: { op: "walk", on: true } }, this.run({ op: "walk", on: true, speed: /быстр|fast/.test(t) ? 1.6 : /медлен|slow/.test(t) ? .6 : 1 }))];
     if (/сним[\wа-яё]* одежд|раздень|без одежд|undress/.test(t)) out.push({ op: "peel", to: "skin" });
     if (/одень|в одежд|dress/.test(t)) out.push({ op: "peel", to: "dressed" });

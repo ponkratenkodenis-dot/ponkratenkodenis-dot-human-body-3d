@@ -61,6 +61,11 @@ textarea{width:100%;box-sizing:border-box;min-height:74px;resize:vertical;border
 .report li{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline}
 .report b{font:500 .78rem var(--f-mono);font-variant-numeric:tabular-nums}
 .report .sh{color:var(--hl)} .report .st{color:var(--accent)}
+.disc{display:flex;flex-direction:column;gap:4px}
+.disc b{font:600 1rem var(--f-mono);font-variant-numeric:tabular-nums}
+.disc .meter{height:6px;border-radius:6px;background:var(--line);overflow:hidden}
+.disc .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3fae5a,#d98e04,#c8442a);transition:width .3s}
+
 code,.mono{font-family:var(--f-mono)}
 /* exercise caption: what to do now, what works, how to do it well */
 .excard{position:absolute;z-index:3;left:calc(342px + 14px);bottom:calc(34px + env(safe-area-inset-bottom,0px));width:min(340px,calc(100% - 356px - 180px));min-width:250px;max-height:52vh;overflow:auto;
@@ -146,6 +151,13 @@ code,.mono{font-family:var(--f-mono)}
     <section class="pane" data-pane="spine" hidden>
       <div class="group"><span class="label">Позвонки — нажмите, чтобы показать</span><div class="spine" id="vert"></div></div>
       <div class="group" id="regions"><span class="label">Согнуть отдел</span></div>
+      <div class="group"><span class="label">Что происходит с позвоночником</span>
+        <div class="row"><label for="spineOn">Показать на модели</label><input type="checkbox" id="spineOn"></div>
+        <ul class="report" id="spineRep"></ul>
+        <div class="disc"><span class="hint">Давление в диске L4–L5 (без груза в руках)</span><b id="discVal">—</b><span class="meter"><i id="discBar"></i></span><span class="hint" id="discBasis"></span></div>
+        <p class="hint">Цвет на модели: <span style="color:var(--hl)">янтарный</span> — сгибание, <span style="color:#13a3b4">бирюзовый</span> — разгибание, <span style="color:#8a5cd6">фиолетовый</span> — наклон вбок или скручивание; диск L4–L5 от зелёного к красному по давлению.
+          Данные: <a href="https://pubmed.ncbi.nlm.nih.gov/10222525/" target="_blank" rel="noopener">Wilke et al., 1999, Spine</a> — измерения у одного человека; между измеренными позами значение оценочное.</p>
+      </div>
     </section>
     <section class="pane" data-pane="ai" hidden>
       <div class="ai">
@@ -245,6 +257,23 @@ $("mDrive").onchange = e => body.muscles({ drive: e.target.checked });
 $("mDQ").onchange = e => body.skinning(e.target.checked ? "dqs" : "linear");
 $("mSkin").onchange = e => body.muscles({ skin: e.target.checked });
 $("mTension").onchange = e => { body.muscles({ tension: e.target.checked }); if (e.target.checked && !body.layerOn.muscles) { body.peel("muscles"); markPeel("muscles"); } };
+/* spine: regions and the L4-L5 disc */
+$("spineOn").onchange = e => { body.showSpine(e.target.checked); log({ op: "spine", show: e.target.checked }); };
+const RN = { lumbar: "Поясничный", thoracic: "Грудной", cervical: "Шейный" };
+const describe = r => { const p = [];
+  if (Math.abs(r.flex) >= 3) p.push((r.flex > 0 ? "сгибание " : "разгибание ") + Math.abs(r.flex) + "°");
+  if (Math.abs(r.side) >= 3) p.push("наклон " + (r.side > 0 ? "вправо " : "влево ") + Math.abs(r.side) + "°");
+  if (Math.abs(r.twist) >= 3) p.push("поворот " + (r.twist > 0 ? "влево " : "вправо ") + Math.abs(r.twist) + "°");
+  return p.join(", ") || "нейтрально"; };
+setInterval(() => {
+  if (document.querySelector('[data-pane="spine"]').hidden || !body.root) return;
+  const S = body.spineState();
+  $("spineRep").innerHTML = ["cervical", "thoracic", "lumbar"].map(k => `<li><span>${RN[k]}</span><b>${describe(S.regions[k])}</b></li>`).join("");
+  $("discVal").textContent = `≈ ${S.disc.mpa.toFixed(2).replace(".", ",")} МПа · ${S.disc.pctOfStanding} % от стоя`;
+  $("discBar").style.width = Math.min(100, S.disc.mpa / 1.2 * 100) + "%"; $("discBasis").textContent = S.disc.basis;
+  $("spineOn").checked = !!body.spineOn;
+}, 300);
+
 /* exercise caption + events for an embedding page */
 let exNow = null, exZoomed = false;
 const exTitle = n => (EXERCISES[n] && EXERCISES[n].ru) || (n === "walk" ? "Ходьба на месте" : n);
