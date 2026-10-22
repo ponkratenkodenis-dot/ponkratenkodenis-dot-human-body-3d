@@ -28,7 +28,7 @@ export const COMMANDS = {
   view:      { desc: "Ракурс: front | back | left | right | top | three_quarter.", args: { angle: "string" } },
   zoom:      { desc: "Приблизить (>1) или отдалить (<1).", args: { factor: "number" } },
   scale:     { desc: "Масштаб модели (1 = 1,75 м).", args: { value: "number" } },
-  shape:     { desc: "Телосложение. breast — размер груди от -1 (меньше) до 1 (больше), 0 — как у модели. Меняются кожа и спортивный топ.", args: { breast: "number" } },
+  shape:     { desc: "Телосложение, каждый параметр от -1 до 1, 0 — как у модели: weight — полнота (-1 худее, 1 полнее), muscle — мышечная масса, breast — размер груди. Можно передать один или несколько. Одежда, волосы и мышцы под кожей подстраиваются; кости не меняются.", args: { weight: "number?", muscle: "number?", breast: "number?" } },
   life:      { desc: "Дыхание и микродвижения вкл/выкл.", args: { on: "boolean" } },
   reset:     { desc: "Стойка, все слои по умолчанию, камера спереди.", args: {} },
   list:      { desc: "Справка: what = parts | vertebrae | presets | layers | commands; layer — фильтр для parts.", args: { what: "string", layer: "string?" } },
@@ -141,6 +141,11 @@ export class Commander {
     if (/груд[\wа-яё]* (больше|крупнее|побольше)|увелич[\wа-яё]* груд/.test(t)) out.push({ op: "shape", breast: Math.min(1, this.b.shape.breast + .5) });
     else if (/груд[\wа-яё]* (меньше|поменьше)|уменьш[\wа-яё]* груд/.test(t)) out.push({ op: "shape", breast: Math.max(-1, this.b.shape.breast - .5) });
     else if (/груд[\wа-яё]* (как было|обычн|средн)/.test(t)) out.push({ op: "shape", breast: 0 });
+    if (/полнее|толще|потолст|набер[\wа-яё]* вес/.test(t)) out.push({ op: "shape", weight: Math.min(1, this.b.shape.weight + .5) });
+    else if (/худее|похуд|стройнее/.test(t)) out.push({ op: "shape", weight: Math.max(-1, this.b.shape.weight - .5) });
+    if (/(мускулист|накачан|подкачай|больше мышц)/.test(t)) out.push({ op: "shape", muscle: Math.min(1, this.b.shape.muscle + .5) });
+    else if (/(меньше мышц|без мускулатур|слаб[\wа-яё]* мускулатур)/.test(t)) out.push({ op: "shape", muscle: Math.max(-1, this.b.shape.muscle - .5) });
+    if (/(обычн[\wа-яё]* телосложен|телосложени[\wа-яё]* как было)/.test(t)) out.push({ op: "shape", weight: 0, muscle: 0, breast: 0 });
     if (/сним[\wа-яё]* одежд|раздень|без одежд|undress/.test(t)) out.push({ op: "peel", to: "skin" });
     if (/одень|в одежд|dress/.test(t)) out.push({ op: "peel", to: "dressed" });
     if (/рентген|x-?ray|насквозь/.test(t)) out.push({ op: "peel", to: "xray" });

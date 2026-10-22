@@ -121,7 +121,8 @@ const COURSE = [
   { id: "standing", ex: "lower_back_standing", title: "Разминка стоя", text: "Если лечь негде: мягкая подвижность поясницы стоя во всех направлениях." }
 ];
 let wasm = true; try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); } catch (e) { wasm = false; }
-const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js" });
+const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js",
+  shape: Object.fromEntries(["breast", "weight", "muscle"].map(k => [k, +new URLSearchParams(location.search).get(k) || 0])) });   // ?breast=&weight=&muscle= from -1 to 1
 const cmd = new Commander(body); window.Body = { body, run: c => cmd.run(c) };
 
 // progress is a per-viewer convenience: it may be unavailable (private mode), the page works without it

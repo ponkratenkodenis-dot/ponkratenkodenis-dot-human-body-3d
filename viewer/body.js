@@ -199,7 +199,7 @@ export class HumanBody extends EventTarget {
     this.camera = new THREE.PerspectiveCamera(32, 1, .01, 50); this.camera.position.set(0, 1.1, 4.2);
     this.controls = new OrbitControls(this.camera, R.domElement); this.controls.target.set(0, .95, 0); this.controls.enableDamping = true;
     this.controls.minDistance = .15; this.controls.maxDistance = 12;
-    this.pose = Object.fromEntries(POSE_KEYS.map(k => [k, 0])); this.target = { ...this.pose }; this.target.breath = 1; this.shape = { breast: 0 }; this.shapeMeshes = [];
+    this.pose = Object.fromEntries(POSE_KEYS.map(k => [k, 0])); this.target = { ...this.pose }; this.target.breath = 1; this.shape = { breast: 0, weight: 0, muscle: 0 }; this.shapeMeshes = []; this.shapeMacros = []; if (this.opt.shape) this.setShape(this.opt.shape);
     this.live = true; this.parts = new Map(); this.layerMeshes = Object.fromEntries(LAYERS.map(l => [l, []]));
     this.layerOn = { clothes: true, hair: true, skin: true, muscles: false, organs: false, skeleton: false }; this.depth = "dressed";
     this.opacity = { skin: 1, muscles: 1, organs: 1, skeleton: 1, clothes: 1, hair: 1 };
@@ -769,40 +769,93 @@ export class HumanBody extends EventTarget {
     return { ok: true, skinning: this.skinMode };
   }
   muscleReport(n) { return this.drive ? this.drive.report(n).map(r => ({ ...r, ru: ruName(r.name) })) : []; }
-  // body shape. breast: -1 small … 0 the model … +1 large. MakeHuman's own 'cupsize' macro (0 / 0.5 / 1, CC0 targets),
-  // baked by tools/build_breast_morph.py into breast-morph.json and applied as two morph targets on the skin and the sports
-  // top (the top refitted by MakeHuman to each shape), so clothes, muscles below and skinning keep working
+  // body shape, each from -1 … 0 (the model) … +1: breast (size), weight, muscle. MakeHuman's own macros ('cupsize', 'weight',
+  // 'muscle'; CC0 targets) sampled at 0 / the model / 1 by tools/build_shape_morphs.py, with every proxy (clothes, shoes,
+  // hair) refitted by MakeHuman. The offsets become morph targets (two per macro), applied before skinning, so poses,
+  // muscles under the skin and clothes keep working
   async _loadShape() {
-    const D = await (await fetch(this.opt.shapeUrl || new URL("./breast-morph.json", import.meta.url).href)).json();
-    const skin = this.layerMeshes.skin.find(m => m.name === "Body"), top = this.layerMeshes.clothes.find(m => /sportsuit/i.test(m.name + (m.userData.part || "")));
-    for (const [m, S] of [[skin, D.skin], [top, D.top]]) {
-      if (!m || !S) continue;
-      const g = m.geometry, p = g.attributes.position, n = p.count, C = .005, H = new Map(), key = (x, y, z) => `${x},${y},${z}`;
-      for (let j = 0; j < S.base.length / 3; j++) { const k = key(Math.floor(S.base[j * 3] / C), Math.floor(S.base[j * 3 + 1] / C), Math.floor(S.base[j * 3 + 2] / C)); (H.get(k) || H.set(k, []).get(k)).push(j); }
-      const toLocal = new THREE.Matrix3().setFromMatrix4(m.bindMatrixInverse), v = new THREE.Vector3(), d = new THREE.Vector3(), T = [new Float32Array(n * 3), new Float32Array(n * 3)];
-      let hit = 0;
+    const D = await (await fetch(this.opt.shapeUrl || new URL("./shape-morph.json", import.meta.url).href)).json(), U = D.unit;
+    const i16 = b => { const s = atob(b), a = new Int16Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = (s.charCodeAt(2 * i) | s.charCodeAt(2 * i + 1) << 8) << 16 >> 16; return a; };
+    this.shapeMacros = D.macros;
+    for (const m of [...this.layerMeshes.skin, ...this.layerMeshes.clothes, ...this.layerMeshes.hair]) {
+      const S = D.meshes[m.name]; if (!S || !S.n || !m.isSkinnedMesh) continue;
+      const base = i16(S.base), g = m.geometry, p = g.attributes.position, n = p.count, C = .005, H = new Map(), key = (x, y, z) => `${x},${y},${z}`;
+      for (let j = 0; j < S.n; j++) { const k = key(Math.floor(base[j * 3] * U / C), Math.floor(base[j * 3 + 1] * U / C), Math.floor(base[j * 3 + 2] * U / C)); (H.get(k) || H.set(k, []).get(k)).push(j); }
+      const map = new Int32Array(n).fill(-1), v = new THREE.Vector3(); let hit = 0;
       for (let i = 0; i < n; i++) {
         v.fromBufferAttribute(p, i).applyMatrix4(m.bindMatrix); const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C);
-        let best = -1, bd = .002;                                   // the same vertex: within Draco quantisation
+        let bd = .002;                                              // the same vertex: within Draco quantisation
         for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (const j of H.get(key(cx + a, cy + b, cz + c)) || []) {
-          const e = Math.hypot(S.base[j * 3] - v.x, S.base[j * 3 + 1] - v.y, S.base[j * 3 + 2] - v.z); if (e < bd) { bd = e; best = j; } }
-        if (best < 0) continue; hit++;
-        ["small", "large"].forEach((t, q) => { d.fromArray(S[t], best * 3).applyMatrix3(toLocal); T[q].set([d.x, d.y, d.z], i * 3); });
+          const e = Math.hypot(base[j * 3] * U - v.x, base[j * 3 + 1] * U - v.y, base[j * 3 + 2] * U - v.z); if (e < bd) { bd = e; map[i] = j; } }
+        if (map[i] >= 0) hit++;
+      }
+      const toLocal = new THREE.Matrix3().setFromMatrix4(m.bindMatrixInverse), d = new THREE.Vector3(), T = [];
+      for (const mac of D.macros) for (const b64 of S.d[mac]) {
+        const o = i16(b64), t = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { const j = map[i]; if (j < 0) continue; d.set(o[j * 3] * U, o[j * 3 + 1] * U, o[j * 3 + 2] * U).applyMatrix3(toLocal); t[i * 3] = d.x; t[i * 3 + 1] = d.y; t[i * 3 + 2] = d.z; }
+        T.push(t);
       }
       // normals follow the new shape: the change of the computed normals (zero wherever the surface does not move)
-      const nrm = off => { const G = new THREE.BufferGeometry(), P = new Float32Array(p.array.length);
-        for (let i = 0; i < n * 3; i++) P[i] = p.getComponent(Math.floor(i / 3), i % 3) + (off ? off[i] : 0);
-        G.setAttribute("position", new THREE.BufferAttribute(P, 3)); if (g.index) G.setIndex(g.index); G.computeVertexNormals(); return G.attributes.normal.array; };
-      const N0 = nrm(null), DN = T.map(t => { const N1 = nrm(t), o = new Float32Array(n * 3); for (let i = 0; i < n * 3; i++) o[i] = N1[i] - N0[i]; return o; });
+      const G = new THREE.BufferGeometry(), P = new Float32Array(n * 3); if (g.index) G.setIndex(g.index);
+      const nrm = off => { for (let i = 0; i < n; i++) { P[i * 3] = p.getX(i) + (off ? off[i * 3] : 0); P[i * 3 + 1] = p.getY(i) + (off ? off[i * 3 + 1] : 0); P[i * 3 + 2] = p.getZ(i) + (off ? off[i * 3 + 2] : 0); }
+        G.setAttribute("position", new THREE.BufferAttribute(P, 3)); G.computeVertexNormals(); return G.attributes.normal.array.slice(); };
+      const N0 = nrm(null), DN = T.map(t => { const N1 = nrm(t); for (let i = 0; i < n * 3; i++) N1[i] -= N0[i]; return N1; });
       g.morphAttributes.position = T.map(t => new THREE.BufferAttribute(t, 3)); g.morphAttributes.normal = DN.map(t => new THREE.BufferAttribute(t, 3));
       g.morphTargetsRelative = true; m.updateMorphTargets(); m.morphTargetInfluences.fill(0); m.userData.shapeHits = hit; this.shapeMeshes.push(m);
       m.material.needsUpdate = true;
     }
-    this.setShape(this.shape);
+    this._shapeReady = true; this.setShape(this.shape);
+  }
+  // the layers under the skin follow it: with more muscle mass the muscles near the surface move out with the skin (fading
+  // to nothing 4 cm deep, so they thicken); for any shape, muscles, fasciae and ligaments the skin would cut are pushed in
+  // to stay 2 mm under it (less fat: the skin comes down onto the muscles). Built as morph targets the first time the
+  // shape leaves the model's (about a second), so the default model loads and draws as before
+  _shapeInner() {
+    const sk = this.shapeMeshes.find(m => m.name === "Body"); if (!sk) return;
+    const g = sk.geometry, p = g.attributes.position, nA = g.attributes.normal, n = p.count, B = sk.bindMatrix, B3 = new THREE.Matrix3().setFromMatrix4(B);
+    const W = new Float32Array(n * 3), NW = new Float32Array(n * 3), v = new THREE.Vector3(), C = .02, H = new Map(), key = (x, y, z) => `${x},${y},${z}`;
+    for (let i = 0; i < n; i++) { v.fromBufferAttribute(p, i).applyMatrix4(B); W.set([v.x, v.y, v.z], i * 3); v.fromBufferAttribute(nA, i).applyMatrix3(B3).normalize(); NW.set([v.x, v.y, v.z], i * 3);
+      const k = key(Math.floor(W[i * 3] / C), Math.floor(W[i * 3 + 1] / C), Math.floor(W[i * 3 + 2] / C)); (H.get(k) || H.set(k, []).get(k)).push(i); }
+    const TP = g.morphAttributes.position.map(t => { const o = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(t, i).applyMatrix3(B3); o.set([v.x, v.y, v.z], i * 3); } return o; });
+    const TN = g.morphAttributes.normal.map(t => { const o = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(t, i).applyMatrix3(B3); o.set([v.x, v.y, v.z], i * 3); } return o; });
+    const follow = this.shapeMacros.flatMap(k => k === "muscle" ? [1, 1] : [0, 0]), GAP = .002, DEEP = .04;
+    let moved = 0, meshes = 0;
+    for (const m of [...this.layerMeshes.muscles, ...this.layerMeshes.skeleton]) {
+      const mp = m.geometry.attributes.position, mn = mp.count, M = m.isSkinnedMesh ? m.bindMatrix : m.matrixWorld, Mi = new THREE.Matrix3().setFromMatrix4(m.isSkinnedMesh ? m.bindMatrixInverse : new THREE.Matrix4().copy(m.matrixWorld).invert());
+      const near = new Int32Array(mn).fill(-1), depth = new Float32Array(mn), X = new Float32Array(mn * 3);
+      for (let i = 0; i < mn; i++) {
+        v.fromBufferAttribute(mp, i).applyMatrix4(M); X.set([v.x, v.y, v.z], i * 3); const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C);
+        let bd = DEEP * DEEP;
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (const j of H.get(key(cx + a, cy + b, cz + c)) || []) {
+          const d = (W[j * 3] - v.x) ** 2 + (W[j * 3 + 1] - v.y) ** 2 + (W[j * 3 + 2] - v.z) ** 2; if (d < bd) { bd = d; near[i] = j; } }
+        if (near[i] >= 0) { const j = near[i]; depth[i] = (W[j * 3] - v.x) * NW[j * 3] + (W[j * 3 + 1] - v.y) * NW[j * 3 + 1] + (W[j * 3 + 2] - v.z) * NW[j * 3 + 2]; }
+      }
+      if (!near.some(j => j >= 0)) continue;
+      const isMuscle = this.layerMeshes.muscles.includes(m), T = [], d = new THREE.Vector3(); let any = false;
+      for (let q = 0; q < TP.length; q++) {
+        const t = new Float32Array(mn * 3), P = TP[q], N = TN[q], f0 = isMuscle ? follow[q] : 0;
+        for (let i = 0; i < mn; i++) { const j = near[i]; if (j < 0) continue;
+          const f = f0 * Math.max(0, Math.min(1, 1 - (depth[i] - .005) / (DEEP - .005)));
+          let dx = P[j * 3] * f, dy = P[j * 3 + 1] * f, dz = P[j * 3 + 2] * f;
+          // where is the new skin: its point and normal near this vertex
+          let nx = NW[j * 3] + N[j * 3], ny = NW[j * 3 + 1] + N[j * 3 + 1], nz = NW[j * 3 + 2] + N[j * 3 + 2]; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+          const s = (X[i * 3] + dx - W[j * 3] - P[j * 3]) * nx + (X[i * 3 + 1] + dy - W[j * 3 + 1] - P[j * 3 + 1]) * ny + (X[i * 3 + 2] + dz - W[j * 3 + 2] - P[j * 3 + 2]) * nz;
+          const goal = Math.max(-GAP, -depth[i]);                 // 2 mm under the skin, or no worse than in the model (folds)
+          if (s > goal) { const k = s - goal; dx -= nx * k; dy -= ny * k; dz -= nz * k; }
+          if (dx || dy || dz) { d.set(dx, dy, dz).applyMatrix3(Mi); t[i * 3] = d.x; t[i * 3 + 1] = d.y; t[i * 3 + 2] = d.z; any = true; moved++; }
+        }
+        T.push(t);
+      }
+      if (!any) continue;
+      m.geometry.morphAttributes.position = T.map(t => new THREE.BufferAttribute(t, 3)); m.geometry.morphTargetsRelative = true;
+      m.updateMorphTargets(); m.morphTargetInfluences.fill(0); this.shapeMeshes.push(m); m.material.needsUpdate = true; meshes++;
+    }
+    this.shapeInnerStats = { meshes, moved };
   }
   setShape(o = {}) {
-    if (o.breast != null && isFinite(+o.breast)) this.shape.breast = Math.max(-1, Math.min(1, +o.breast));
-    const b = this.shape.breast; for (const m of this.shapeMeshes) { m.morphTargetInfluences[0] = Math.max(0, -b); m.morphTargetInfluences[1] = Math.max(0, b); }
+    for (const k of Object.keys(this.shape)) if (o[k] != null && isFinite(+o[k])) this.shape[k] = Math.max(-1, Math.min(1, +o[k]));
+    if (this._shapeReady && !this._innerDone && Object.values(this.shape).some(v => v)) { this._innerDone = true; try { this._shapeInner(); } catch (e) { console.warn("shape inner layers:", e); } }
+    for (const m of this.shapeMeshes) this.shapeMacros.forEach((k, q) => { const b = this.shape[k] || 0; m.morphTargetInfluences[q * 2] = Math.max(0, -b); m.morphTargetInfluences[q * 2 + 1] = Math.max(0, b); });
     return { ...this.shape };
   }
   snap() { for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }

@@ -96,7 +96,8 @@ if (Q.get("theme")) document.documentElement.dataset.theme = Q.get("theme");
 if (Q.get("ui") === "min") document.body.classList.add("min");
 
 let wasm = true; try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); } catch (e) { wasm = false; }
-const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js" });
+const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js",
+  shape: Object.fromEntries(["breast", "weight", "muscle"].map(k => [k, +new URLSearchParams(location.search).get(k) || 0])) });   // ?breast=&weight=&muscle= from -1 to 1
 const cmd = new Commander(body);
 window.Body = { body, run: c => cmd.run(c) };
 

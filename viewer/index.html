@@ -131,8 +131,8 @@ code,.mono{font-family:var(--f-mono)}
           <button class="chip" data-peel="organs">Органы</button>
         </div></div>
       <div class="group"><span class="label">Телосложение</span>
-        <div class="row"><label for="breast">Размер груди</label><output id="breastO">как у модели</output><input type="range" id="breast" min="-100" max="100" step="5" value="0"></div>
-        <p class="hint">От меньшего к большему в пределах параметра MakeHuman «размер груди». Вместе с кожей меняется спортивный топ.</p></div>
+        <div id="shapeRows"></div>
+        <p class="hint">В пределах параметров MakeHuman, на котором построено тело. Одежда и волосы подстраиваются вместе с кожей. Мышцы под кожей тоже: с большей мышечной массой они толще, а когда кожа ложится ближе (худее), остаются под ней. Кости не меняются.</p></div>
       <div class="group" id="layerRows"><span class="label">Слои и прозрачность</span></div>
       <p class="hint">Нажмите на любую часть тела, чтобы узнать, что это. Вращайте модель пальцем или мышью, колесом и щипком приближайте.</p>
     </section>
@@ -206,7 +206,8 @@ const $ = id => document.getElementById(id);
 
 let wasm = true;
 try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); } catch (e) { wasm = false; }
-const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js" });
+const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js",
+  shape: Object.fromEntries(["breast", "weight", "muscle"].map(k => [k, +new URLSearchParams(location.search).get(k) || 0])) });   // ?breast=&weight=&muscle= from -1 to 1
 const cmd = new Commander(body);
 window.Body = { body, run: c => cmd.run(c), TOOL, COMMANDS };
 /* embedding: a parent page (iframe host) sends {type:"body_command", commands:[...], id} and gets {type:"body_result", id, results} back */
@@ -258,10 +259,18 @@ for (const [k, name, lo, hi] of SL) {
   r.querySelector("input").oninput = e => { body.setPose({ [k]: +e.target.value }); $("o-" + k).textContent = e.target.value + "°"; };
 }
 function syncSliders() { for (const [k] of SL) { const v = Math.round(body.target[k]); $("s-" + k).value = v; $("o-" + k).textContent = v + "°"; } }
-const breastText = v => v === 0 ? "как у модели" : (v < 0 ? "меньше " : "больше ") + Math.abs(v) + " %";
-$("breast").oninput = e => { const v = +e.target.value; body.setShape({ breast: v / 100 }); $("breastO").textContent = breastText(v); };
-$("breast").onchange = e => log({ op: "shape", breast: +e.target.value / 100 });
-setInterval(() => { const v = Math.round(body.shape.breast * 100); if (document.activeElement !== $("breast") && +$("breast").value !== v) { $("breast").value = v; $("breastO").textContent = breastText(v); } }, 400);
+/* body shape: -100 … 0 (the model) … 100 */
+const SHAPES = [["weight", "Полнота", "худее", "полнее"], ["muscle", "Мышечная масса", "меньше", "больше"], ["breast", "Размер груди", "меньше", "больше"]];
+const shapeText = (S, v) => v === 0 ? "как у модели" : (v < 0 ? S[2] : S[3]) + " " + Math.abs(v) + " %";
+for (const S of SHAPES) {
+  const [k, name] = S, r = document.createElement("div"); r.className = "row";
+  r.innerHTML = `<label for="sh-${k}">${name}</label><output id="sho-${k}">как у модели</output><input type="range" id="sh-${k}" min="-100" max="100" step="5" value="0">`;
+  $("shapeRows").append(r);
+  const inp = r.querySelector("input");
+  inp.oninput = () => { body.setShape({ [k]: +inp.value / 100 }); $("sho-" + k).textContent = shapeText(S, +inp.value); };
+  inp.onchange = () => log({ op: "shape", [k]: +inp.value / 100 });
+}
+setInterval(() => { for (const S of SHAPES) { const k = S[0], inp = $("sh-" + k), v = Math.round(body.shape[k] * 100); if (document.activeElement !== inp && +inp.value !== v) { inp.value = v; $("sho-" + k).textContent = shapeText(S, v); } } }, 400);
 $("life").onchange = e => (body.live = e.target.checked);
 $("mDrive").onchange = e => body.muscles({ drive: e.target.checked });
 $("mDQ").onchange = e => body.skinning(e.target.checked ? "dqs" : "linear");
