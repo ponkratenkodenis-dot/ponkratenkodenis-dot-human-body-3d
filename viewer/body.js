@@ -129,6 +129,17 @@ export const EXERCISES = {
   lift_right: { ru: "Подъём груза: правильно", loop: 2, frames: [{ pose: "stand", set: { box: 1 }, dur: 1.5, hold: .5, say: "Коробка 20 кг на полу" }, { pose: "squat_lift", dur: 2.4, hold: 1, say: "Колени согнуты, спина ровная, груз между ног — около 1,7 МПа" },
     { pose: "hold_close", dur: 2.2, hold: 1.5, say: "Груз у тела — около 1,1 МПа" }, { pose: "squat_lift", dur: 2.4, hold: .5, say: "Опускайте так же: присед, спина ровная" }], end: { pose: "stand", set: { box: 1 }, dur: 1.8, say: "Коробка на полу" } },
   lift_compare: { ru: "Подъём груза: сравнить", program: ["lift_wrong", "lift_right"] },
+  // a tour of the spine: regions, discs, the most loaded levels (frames highlight parts)
+  spine_tour: { ru: "Как устроен позвоночник", loop: 1, frames: [
+    { pose: "posture_ideal", peel: "xray", view: "left", hl: "позвоночник", dur: 2, hold: 3.5, say: "Позвоночник: 24 подвижных позвонка, крестец и копчик. Сбоку видны четыре изгиба" },
+    { hl: "шейный", dur: .6, hold: 3.5, say: "Шейный отдел: 7 позвонков, самый подвижный" },
+    { hl: "грудной", dur: .6, hold: 3.5, say: "Грудной: 12 позвонков, к ним крепятся рёбра, поэтому он менее подвижен" },
+    { hl: "поясничный", dur: .6, hold: 3.5, say: "Поясничный: 5 самых крупных позвонков, на них приходится наибольшая нагрузка" },
+    { hl: "таз", dur: .6, hold: 3, say: "Крестец и копчик соединяют позвоночник с тазом" },
+    { hl: "диски", dur: .6, hold: 3.5, say: "Между позвонками 23 диска: они амортизируют и дают подвижность" },
+    { hl: "L4-L5", view: { at: "spine04", dir: [1, .25, .35], dist: .7 }, dur: 1, hold: 4, say: "Чаще всего страдают нижние поясничные диски: L4–L5 и L5–S1" },
+    { hl: "", pose: "forward_bend", amount: .7, view: "left", dur: 2.5, hold: 2.5, say: "При наклоне поясница сгибается, давление в диске растёт" },
+    { pose: "posture_ideal", dur: 2, hold: 1, say: "Дальше — как осанка, посадка и движения меняют эту нагрузку" }], end: { pose: "stand", dur: 1.5 } },
   // posture and scoliosis (the spine coloured, the view chosen per frame)
   posture_types: { ru: "Типы осанки", loop: 1, spine: true, frames: [{ pose: "posture_ideal", view: "left", dur: 2, hold: 3, say: "Нормальная осанка: ухо, плечо, таз и лодыжка на одной линии" },
     { pose: "posture_kyphosis", dur: 2.5, hold: 3.5, say: "Сутулость: грудной кифоз усилен, голова впереди" }, { pose: "posture_lordosis", dur: 2.5, hold: 3.5, say: "Гиперлордоз: таз наклонён вперёд, поясница прогнута" },
@@ -421,7 +432,7 @@ export class HumanBody extends EventTarget {
     this.walking = null; const segs = []; let st = { ...this.target };
     const L = Math.max(1, Math.min(50, loop));
     const push = (f, r) => { const nx = this._frameState(st, f); segs.push({ a: st, b: nx, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0),
-      say: f.say || "", view: f.view || null, peel: f.peel || null, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; };
+      say: f.say || "", view: f.view || null, peel: f.peel || null, hl: f.hl, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; };
     for (let r = 0; r < L; r++) frames.forEach(f => push(f, r));
     if (end) push({ _rep: 0, ...end }, 0);
     this.anim = { segs, t: 0, speed: Math.max(.1, +speed || 1), total: segs.reduce((s, g) => s + g.dur + g.hold, 0), name, i: -1 };
@@ -457,7 +468,7 @@ export class HumanBody extends EventTarget {
       const A = this.anim; if (!this.paused) A.t += dt * A.speed; let t = A.t, i = 0;
       while (i < A.segs.length && t > A.segs[i].dur + A.segs[i].hold) { t -= A.segs[i].dur + A.segs[i].hold; i++; }
       const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
-      if (i !== A.i && i < A.segs.length) { A.i = i; if (g.peel) this.peel(g.peel); if (g.view) (typeof g.view === "string" ? this.view(g.view) : this.lookFrom(g.view)); this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
+      if (i !== A.i && i < A.segs.length) { A.i = i; if (g.peel) this.peel(g.peel); if (g.hl !== undefined) { if (g.hl) this.highlight(g.hl); else this.clearHighlight(); } if (g.view) (typeof g.view === "string" ? this.view(g.view) : this.lookFrom(g.view)); this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
       for (const k of POSE_KEYS) if (k !== "breath") { const v = g.a[k] + (g.b[k] - g.a[k]) * e; this.pose[k] = this.target[k] = v; }
       if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
     }
@@ -735,7 +746,8 @@ export class HumanBody extends EventTarget {
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
       this._paintSpine(); this._props();
       this.floor.material.opacity = .8 * (this.lying || 0); this.floor.visible = this.lying > .01;
-      const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); }
+      const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); this._refitAt = this.t + 2.2; }
+      if (this._refitAt && this.t > this._refitAt) { this._refitAt = 0; if (!this.camTween) this.fitView(this._wasDown ? "side" : "front"); }   // again once the move has settled
     }
     if (this.camTween) {
       const T = this.camTween, u = Math.min(1, (this.t - T.t0) / T.dur), e = u * u * (3 - 2 * u);
