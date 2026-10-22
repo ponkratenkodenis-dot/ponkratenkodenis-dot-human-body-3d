@@ -298,7 +298,8 @@ export class HumanBody extends EventTarget {
     this.anim = null; this.walking = on ? { phase: 0, speed: Math.max(.2, Math.min(2.5, +speed || 1)) } : null; if (!on) this.preset("stand");
     this.dispatchEvent(new CustomEvent(on ? "motion" : "motion-end", { detail: { name: "walk", exercise: "walk", rep: 0, reps: 0, say: on ? "Ходьба на месте" : "" } })); return { ok: true, walking: !!on };
   }
-  stopMotion() { const was = !!(this.anim || this.walking), name = this.anim ? this.anim.name : this.walking ? "walk" : null; this.anim = null; this.walking = null; if (was) this.dispatchEvent(new CustomEvent("motion-end", { detail: { name, stopped: true } })); return { ok: true, stopped: was }; }
+  pauseMotion(on = true) { this.paused = !!on; return { ok: true, paused: this.paused }; }
+  stopMotion() { this.paused = false; const was = !!(this.anim || this.walking), name = this.anim ? this.anim.name : this.walking ? "walk" : null; this.anim = null; this.walking = null; if (was) this.dispatchEvent(new CustomEvent("motion-end", { detail: { name, stopped: true } })); return { ok: true, stopped: was }; }
   // highlight several parts by exact name (both sides when the name has no .l/.r)
   highlightMany(names, color = "#ffb000") {
     this.clearHighlight(); let n = 0;
@@ -307,7 +308,7 @@ export class HumanBody extends EventTarget {
   }
   _motion(dt) {
     if (this.anim) {
-      const A = this.anim; A.t += dt * A.speed; let t = A.t, i = 0;
+      const A = this.anim; if (!this.paused) A.t += dt * A.speed; let t = A.t, i = 0;
       while (i < A.segs.length && t > A.segs[i].dur + A.segs[i].hold) { t -= A.segs[i].dur + A.segs[i].hold; i++; }
       const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
       if (i !== A.i && i < A.segs.length) { A.i = i; this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
@@ -315,7 +316,7 @@ export class HumanBody extends EventTarget {
       if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
     }
     if (this.walking) {
-      const W = this.walking; W.phase = (W.phase + dt * .95 * W.speed) % 1; const o = { ...ARMS_DOWN, hipFlex: 0, spineFlex: 3 };
+      const W = this.walking; if (!this.paused) W.phase = (W.phase + dt * .95 * W.speed) % 1; const o = { ...ARMS_DOWN, hipFlex: 0, spineFlex: 3 };
       for (const [S, p] of [["L", W.phase], ["R", (W.phase + .5) % 1]]) {
         const g = gaitLeg(p); o["knee" + S] = g.knee; o["leg" + S + "Forward"] = g.hip - .75 * g.knee; o["ankle" + S] = g.ankle;
         o["arm" + S + "Forward"] = -9 * Math.min(1.6, W.speed) * Math.cos(2 * Math.PI * p); o["elbow" + S] = -32 + 12 * Math.max(0, -Math.cos(2 * Math.PI * p));
@@ -457,7 +458,8 @@ export class HumanBody extends EventTarget {
       const ax = this.bones.head.getWorldPosition(new THREE.Vector3()).sub(this.bones.root.getWorldPosition(new THREE.Vector3())); ax.y = 0;
       d = new THREE.Vector3(-ax.z, 0, ax.x).normalize(); const face = new THREE.Vector3(0, 0, 1).applyQuaternion(this.root.quaternion); if (d.dot(face) < 0) d.negate(); d.y = .45;
     }
-    d.normalize(); this.tweenCam(c, c.clone().add(d.multiplyScalar(r / Math.tan(this.camera.fov * D2R / 2) * 1.2)), 1.2);
+    const half = Math.min(this.camera.fov * D2R / 2, Math.atan(Math.tan(this.camera.fov * D2R / 2) * this.camera.aspect));   // narrow screens: the width decides
+    d.normalize(); this.tweenCam(c, c.clone().add(d.multiplyScalar(r / Math.tan(half) * 1.2)), 1.2);
   }
   zoom(f) { const c = this.controls.target, p = this.camera.position.clone().sub(c).multiplyScalar(1 / f).add(c); this.tweenCam(c.clone(), p); }
   resetView() { this.tweenCam(new THREE.Vector3(0, .95, 0), new THREE.Vector3(0, 1.1, 4.2)); }
