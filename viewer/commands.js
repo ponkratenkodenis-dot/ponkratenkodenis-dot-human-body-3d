@@ -6,7 +6,7 @@ import { VERTEBRAE } from "./names-ru.js";
 export const COMMANDS = {
   pose:      { desc: "Готовая поза. preset: " + Object.keys(PRESETS).join(", ") + "; amount 0..1 (насколько сильно).", args: { preset: "string", amount: "number?" } },
   set:       { desc: "Точная поза. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Градусы, кроме пальцев рук. Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево; ankleL/R плюс = носок вниз; forearmL/R — поворот предплечья: плюс = ладонью вниз/назад (пронация), минус = ладонью вверх/вперёд (супинация), 0 = исходное положение, -120 = ладони вперёд при опущенных руках; spreadL/R 0..1 — развести пальцы; toesL/R плюс = пальцы стопы поджаты, минус = подняты; wristLFlex/wristRFlex плюс = кисть к ладони. Пальцы рук (thumbL, indexL, middleL, ringL, littleL и то же с R) — степень сгибания 0..1 (1 = в кулак).", args: { "<key>": "number" } },
-  exercise:  { desc: "Показать упражнение с повторами: " + Object.entries(EXERCISES).map(([k, v]) => k + " (" + v.ru + ")").join(", ") + ". reps — сколько раз, speed — скорость (1 = обычно).", args: { name: "string", reps: "number?", speed: "number?" } },
+  exercise:  { desc: "Показать упражнение с повторами: " + Object.entries(EXERCISES).filter(([, v]) => !v.hidden).map(([k, v]) => k + " (" + v.ru + ")").join(", ") + ". reps — сколько раз, speed — скорость (1 = обычно).", args: { name: "string", reps: "number?", speed: "number?" } },
   animate:   { desc: "Своя последовательность: frames — список кадров { pose?, amount?, set?, face?, hand?: {gesture, side}, dur (секунды перехода), hold (секунды удержания) }; loop — повторы; speed. Кадр меняет только то, что в нём указано.", args: { frames: "object[]", loop: "number?", speed: "number?" } },
   walk:      { desc: "Ходьба на месте (как на дорожке): on true/false, speed 0.2..2.5.", args: { on: "boolean?", speed: "number?" } },
   stop:      { desc: "Остановить упражнение, анимацию или ходьбу.", args: {} },
@@ -51,7 +51,7 @@ export const TOOL = {
             show: {}, hide: { type: "array", items: { type: "string" } }, to: { type: "string" },
             layer: { type: "string" }, value: { type: "number" }, part: { type: "string" }, color: { type: "string" },
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
-            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, name: { type: "string", enum: Object.keys(EXERCISES) }, reps: { type: "number" }, speed: { type: "number" }, loop: { type: "number" },
+            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, name: { type: "string", enum: Object.keys(EXERCISES).filter(k => !EXERCISES[k].hidden) }, reps: { type: "number" }, speed: { type: "number" }, loop: { type: "number" },
             frames: { type: "array", items: { type: "object" } }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
@@ -115,11 +115,16 @@ export class Commander {
     if (/сбро|reset|исходн/.test(t)) out.push({ op: "reset" });
     if (/стоп|хватит|останов|stop/.test(t)) return [Object.assign({ cmd: { op: "stop" } }, this.run({ op: "stop" }))];
     const reps = (t.match(/(\d+)\s*(раз|повтор|rep)/) || [])[1];
-    const ex = /поясниц|спин[уае]|lower back/.test(t) && /упражн|комплекс|разминк|exercise/.test(t) ? "lower_back" : /приседа|squats/.test(t) ? "squats" : /наклон[\wа-яё]* в сторон/.test(t) ? "side_bends"
-      : /поворот[\wа-яё]* корпус|скручиван/.test(t) ? "trunk_rotation" : /(упражн|разминк|мобильн)[\wа-яё]* (для )?ше[июя]/.test(t) ? "neck_mobility" : /кошк|cat.?cow/.test(t) ? "cat_cow"
+    const ex = /поясниц|спин[уае]|lower back/.test(t) && /упражн|комплекс|разминк|exercise/.test(t) ? (/сто[яй]/.test(t) ? "lower_back_standing" : "lower_back") : /приседа|squats/.test(t) ? "squats" : /наклон[\wа-яё]* в сторон/.test(t) ? "side_bends"
+      : /поворот[\wа-яё]* корпус|скручиван/.test(t) ? "trunk_rotation" : /(упражн|разминк|мобильн)[\wа-яё]* (для )?ше[июя]/.test(t) ? "neck_mobility" : /кошк|cat.?cow/.test(t) ? (/сто[яй]/.test(t) ? "cat_cow" : "cat_cow_floor") : /мостик|bridge/.test(t) ? "bridge" : /колен[\wа-яё]* к груди/.test(t) ? "knees_to_chest" : /птиц|собак|bird.?dog/.test(t) ? "bird_dog"
       : /подъ[её]м[\wа-яё]* на носк|икр/.test(t) ? "calf_raises" : /подъ[её]м[\wа-яё]* рук|маши руками/.test(t) ? "arm_raises" : /марш|колен[\wа-яё]* вверх|high knees/.test(t) ? "march"
       : /(упражн|разминк)[\wа-яё]* (для )?кист/.test(t) ? "hand_exercise" : null;
     if (ex) return [Object.assign({ cmd: { op: "exercise", name: ex, reps: reps ? +reps : undefined } }, this.run({ op: "exercise", name: ex, reps: reps ? +reps : undefined }))];
+    if (/ляг на спин|лёжа на спин|лежа на спин/.test(t)) out.push({ op: "pose", preset: "lie_back" });
+    else if (/ляг на живот|на живот/.test(t)) out.push({ op: "pose", preset: "lie_front" });
+    else if (/ляг на бок|на боку/.test(t)) out.push({ op: "pose", preset: "lie_side" });
+    else if (/четвереньк/.test(t)) out.push({ op: "pose", preset: "all_fours" });
+    else if (/встань(?! на (носк|цыпочк))|подними[\wа-яё]*сь|stand up/.test(t)) out.push({ op: "pose", preset: "stand" });
     if (/(иди|идти|шагай|ходьб|пройдись|walk)/.test(t)) return [Object.assign({ cmd: { op: "walk", on: true } }, this.run({ op: "walk", on: true, speed: /быстр|fast/.test(t) ? 1.6 : /медлен|slow/.test(t) ? .6 : 1 }))];
     if (/сним[\wа-яё]* одежд|раздень|без одежд|undress/.test(t)) out.push({ op: "peel", to: "skin" });
     if (/одень|в одежд|dress/.test(t)) out.push({ op: "peel", to: "dressed" });

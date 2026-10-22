@@ -44,7 +44,11 @@
   - В улыбке поднимаются и нижние веки, как в настоящей улыбке.
   - При открытом рте жевательная и височная мышцы растягиваются (синие), мышцы под челюстью укорачиваются.
   - Выражение и жест кистей сохраняются при смене позы тела.
-- **Движение:** ходьба на месте и 11 упражнений по команде, в том числе комплекс для поясницы («кошка — корова», наклоны в стороны, повороты корпуса, наклон вперёд). ИИ может собрать любую свою последовательность поз.
+- **Движение:** ходьба на месте и упражнения по команде; ИИ может собрать любую свою последовательность поз.
+  - **На полу:** лёжа на спине, на животе, на боку, с согнутыми коленями; сидя; стоя на коленях; на четвереньках. Всё тело поворачивается, на пол ложится то, что ниже всего (спина, таз, голова, колени, ладони, стопы), появляется пол, камера сама переходит на вид сбоку.
+  - **Упражнения для поясницы на полу:** колени к груди, ягодичный мостик, «кошка — корова» на четвереньках, «птица-собака» (рука и противоположная нога). Комплекс `lower_back` идёт подряд около 2 минут: модель ложится, делает упражнения лёжа, садится, встаёт на колени, переходит на четвереньки и в конце встаёт.
+  - Углы подобраны расчётом (`viewer/dev/floorfit.js`): на четвереньках колени и ладони касаются пола одновременно, спина горизонтальна; в мостике таз на 12 см выше плеч, стопы стоят на полу всей подошвой, бедро на одной линии с корпусом; в «колени к груди» кисти на голенях (19 мм).
+  - Стоя: приседания, наклоны, повороты корпуса, шея, «кошка — корова» стоя, подъёмы на носки, подъём рук, марш, кисти; разминка для поясницы стоя (`lower_back_standing`).
   - Ходьба по типичным углам шага: тазобедренный сустав (бедро +19° вперёд и −17° назад), колено (амортизация после касания, до 60° в переносе), голеностоп (носок вверх при касании пяткой, толчок носком). Руки идут навстречу ногам, корпус слегка поворачивается.
   - На полу всегда самая низкая точка стоп (пятка или подушечка), поэтому поднятая нога не тянет тело вверх. При касании пяткой пятка на полу, а другая нога стоит на подушечке.
   - Переходы идут по реальному времени и на медленных устройствах тоже.
@@ -87,9 +91,9 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 
 | op | что делает | пример |
 |---|---|---|
-| `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow, tiptoe`; `amount` 0..1. Жест кистей при смене позы сохраняется | `{"op":"pose","preset":"squat","amount":0.7}` |
+| `pose` | готовая поза: `stand, anatomical, forward_bend, back_bend, side_bend_left/right, twist_left/right, arms_up, t_pose, squat, slouch, look_down, look_up, cat, cow, tiptoe`; на полу `lie_back, lie_front, lie_side, hook_lying, bridge, knees_to_chest, sit_floor, kneel, all_fours, cat_floor, cow_floor, bird_dog_left, bird_dog_right`; положение всего тела — ключи `bodyPitch` (−90 на спине, +90 на животе) и `bodyRoll` (на боку); `amount` 0..1. Жест кистей при смене позы сохраняется | `{"op":"pose","preset":"squat","amount":0.7}` |
 | `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise, wristLFlex, wristRFlex, ankleL, ankleR, toesL, toesR, forearmL, forearmR, legLForward, legRForward` (`legLForward` — бедро одной ноги вперёд, как в шаге); пальцы рук `thumbL, indexL, middleL, ringL, littleL` (и с `R`) — сгибание 0..1; `spreadL, spreadR` — развести пальцы 0..1 | `{"op":"set","forearmL":-110,"spreadL":1}` |
-| `exercise` | упражнение с повторами: `squats, forward_bend, side_bends, trunk_rotation, neck_mobility, cat_cow, calf_raises, arm_raises, march, hand_exercise, lower_back` (комплекс для поясницы); `reps`, `speed` | `{"op":"exercise","name":"lower_back"}` |
+| `exercise` | упражнение с повторами: `squats, forward_bend, side_bends, trunk_rotation, neck_mobility, cat_cow, calf_raises, arm_raises, march, hand_exercise, lower_back_standing`; на полу `knees_to_chest, bridge, cat_cow_floor, bird_dog, lower_back` (комплекс для поясницы); `reps`, `speed` | `{"op":"exercise","name":"lower_back"}` |
 | `animate` | своя последовательность кадров: `frames` = [{`pose`, `amount`, `set`, `face`, `hand`:{`gesture`,`side`}, `dur`, `hold`}], `loop`, `speed`; кадр меняет только то, что в нём указано | `{"op":"animate","frames":[{"pose":"arms_up","dur":1},{"face":"smile","dur":0.5}]}` |
 | `walk` / `stop` | ходьба на месте (`on`, `speed` 0.2–2.5) / остановить движение | `{"op":"walk","speed":1.2}` |
 | `face` | выражение лица: `neutral, smile, laugh, surprise, sad, angry, blink, wink_left, wink_right, mouth_open`; `amount` 0..1. Точно через `set`: `jawOpen` (градусы), `smile` (−1..1), `brows` (−1..1), `blinkL`/`blinkR` (0..1), `lookX`/`lookY` (градусы, плюс — влево от модели / вверх) | `{"op":"face","expression":"surprise"}` |

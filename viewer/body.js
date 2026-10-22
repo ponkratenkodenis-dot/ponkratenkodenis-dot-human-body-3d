@@ -26,7 +26,7 @@ export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "n
   "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
   "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR", "forearmL", "forearmR", "spreadL", "spreadR",
   "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR",
-  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "breath"];
+  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "bodyPitch", "bodyRoll", "breath"];
 // face keys are kept too when a whole-body preset is chosen
 export const FACE_KEYS = ["jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY"];
 // expressions: jaw opening (deg), smile (+ corners up and out, - down), brows (+ up, - down and together), blinks 0..1
@@ -59,7 +59,25 @@ export const PRESETS = {
   slouch: { spineFlex: 22, neckFlex: -18 },
   look_down: { neckFlex: 35 }, look_up: { neckFlex: -30 },
   cat: { spineFlex: 30, neckFlex: 25 }, cow: { spineFlex: -20, neckFlex: -25 },
-  tiptoe: { ankleL: 40, ankleR: 40, toesL: -40, toesR: -40 }
+  tiptoe: { ankleL: 40, ankleR: 40, toesL: -40, toesR: -40 },
+  // on the floor: the whole body turns (bodyPitch -90 = on the back, +90 = face down; bodyRoll = on the side)
+  lie_back: { bodyPitch: -90, armLRaise: -30, armRRaise: -30, elbowL: -50, elbowR: -50, ankleL: 25, ankleR: 25 },
+  lie_front: { bodyPitch: 90, armLRaise: -30, armRRaise: -30, elbowL: -50, elbowR: -50, ankleL: 55, ankleR: 55 },
+  lie_side: { bodyRoll: -90, legLForward: 25, legRForward: 15, kneeL: 30, kneeR: 25, armLForward: 40, armRForward: 60, elbowL: 20, elbowR: 10 },
+  // floor exercises; angles found so the right parts touch the floor together (dev/floorfit.js)
+  hook_lying: { bodyPitch: -90, kneeL: 120, kneeR: 120, legLForward: -40, legRForward: -40, ankleL: 90, ankleR: 90, armLRaise: -30, armRRaise: -30, elbowL: -50, elbowR: -50 },
+  bridge: { bodyPitch: -112, kneeL: 95, kneeR: 95, legLForward: -70, legRForward: -70, ankleL: 112, ankleR: 112, armLRaise: -30, armRRaise: -30, elbowL: -50, elbowR: -50 },
+  knees_to_chest: { bodyPitch: -90, kneeL: 130, kneeR: 130, legLForward: 52, legRForward: 52, ankleL: 30, ankleR: 30, armLForward: 5, armRForward: 5, armLRaise: -75, armRRaise: -75, elbowL: 60, elbowR: 60, neckFlex: 20,   // hands on the shins (dev/floorfit.js hug: 19 mm)
+    thumbL: .6, indexL: .7, middleL: .7, ringL: .7, littleL: .7, thumbR: .6, indexR: .7, middleR: .7, ringR: .7, littleR: .7 },
+  all_fours: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60 },
+  cat_floor: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60, spineFlex: 28, neckFlex: 30 },
+  cow_floor: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60, spineFlex: -22, neckFlex: -30 },
+  // getting up and down: sitting on the floor with straight legs, kneeling upright
+  sit_floor: { legLForward: 90, legRForward: 90, armLForward: -25, armRForward: -25, armLRaise: -25, armRRaise: -25, elbowL: -50, elbowR: -50, wristLFlex: -70, wristRFlex: -70, spineFlex: 10 },
+  kneel: { kneeL: 92, kneeR: 92, legLForward: -69, legRForward: -69, ankleL: 95, ankleR: 95, armLRaise: -38, armRRaise: -38, elbowL: -30, elbowR: -30 },
+  // bird-dog: one arm forward and the OPPOSITE leg back
+  bird_dog_left: { bodyPitch: 76, kneeL: 90, kneeR: 0, legLForward: 30, legRForward: 0, armLForward: 166, armRForward: 76, elbowL: -50, elbowR: -50, wristRFlex: -75, ankleL: 60, ankleR: 20 },
+  bird_dog_right: { bodyPitch: 76, kneeL: 0, kneeR: 90, legLForward: 0, legRForward: 30, armLForward: 76, armRForward: 166, elbowL: -50, elbowR: -50, wristLFlex: -75, ankleL: 20, ankleR: 60 }
 };
 
 // exercises: frames of { pose, amount, set, face, hand: {gesture, side}, dur (s, transition), hold (s) }; loop = repetitions;
@@ -78,7 +96,18 @@ export const EXERCISES = {
   march: { ru: "Марш с высоким подниманием колен", loop: 6, frames: [{ set: { ...ARMS_DOWN, legLForward: 25, kneeL: 90, legRForward: 0, kneeR: 0, armRForward: 35, armLForward: -20 }, dur: .7 },
     { set: { ...ARMS_DOWN, legRForward: 25, kneeR: 90, legLForward: 0, kneeL: 0, armLForward: 35, armRForward: -20 }, dur: .7 }], end: { pose: "stand", dur: 1.2 } },
   hand_exercise: { ru: "Кулак — разведённые пальцы", loop: 5, frames: [{ hand: { gesture: "fist" }, dur: .8, hold: .3 }, { hand: { gesture: "spread" }, dur: .8, hold: .3 }], end: { hand: { gesture: "relaxed" }, dur: .8 } },
-  lower_back: { ru: "Комплекс для поясницы", program: ["cat_cow", "side_bends", "trunk_rotation", "forward_bend"] }
+  lower_back_standing: { ru: "Разминка для поясницы стоя", program: ["cat_cow", "side_bends", "trunk_rotation", "forward_bend"] },
+  // on the floor
+  knees_to_chest: { ru: "Колени к груди (лёжа)", loop: 3, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 2 }, { pose: "knees_to_chest", dur: 2, hold: 2 }], end: { pose: "hook_lying", dur: 1.5 } },
+  bridge: { ru: "Ягодичный мостик", loop: 5, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 1.6, hold: .4 }, { pose: "bridge", dur: 1.6, hold: 1.5 }], end: { pose: "hook_lying", dur: 1.5 } },
+  cat_cow_floor: { ru: "Кошка — корова (на четвереньках)", loop: 4, start: "_kneel_down", frames: [{ pose: "cat_floor", dur: 2, hold: .6 }, { pose: "cow_floor", dur: 2.4, hold: .6 }], end: { pose: "all_fours", dur: 1.5 } },
+  bird_dog: { ru: "Птица-собака", loop: 3, start: "_kneel_down", frames: [{ pose: "all_fours", dur: 1.4 }, { pose: "bird_dog_right", dur: 1.6, hold: 1.5 }, { pose: "all_fours", dur: 1.4 }, { pose: "bird_dog_left", dur: 1.6, hold: 1.5 }], end: { pose: "all_fours", dur: 1.4 } },
+  lower_back: { ru: "Комплекс для поясницы (на полу)", program: ["knees_to_chest", "bridge", "_to_all_fours", "cat_cow_floor", "bird_dog", "_stand_up"] },
+  // transitions inside programs: roll to the side and come up on all fours; stand up
+  _kneel_down: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2 }, { pose: "all_fours", dur: 2 }] },
+  _lie_down: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2 }, { pose: "sit_floor", dur: 2.2 }, { pose: "hook_lying", dur: 2.2 }] },
+  _to_all_fours: { hidden: true, loop: 1, frames: [{ pose: "sit_floor", dur: 2.2, hold: .3 }, { pose: "kneel", dur: 2.2, hold: .3 }, { pose: "all_fours", dur: 2 }] },
+  _stand_up: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2 }, { pose: "stand", dur: 2.5 }] }
 };
 const bump = (p, c, w) => { let d = Math.abs(p - c); d = Math.min(d, 1 - d); return Math.exp(-((d / w) ** 2)); };
 // one leg over a gait cycle (phase 0 = heel strike), degrees; from typical sagittal gait curves
@@ -104,12 +133,15 @@ export class HumanBody extends EventTarget {
     this.scene = new THREE.Scene();
     const pm = new THREE.PMREMGenerator(R); this.scene.environment = pm.fromScene(new RoomEnvironment(), .04).texture;
     const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(1.5, 3, 2.5); this.scene.add(key);
+    // a soft floor, shown when the body is on the floor
+    const fl = this.floor = new THREE.Mesh(new THREE.CircleGeometry(1.5, 64), new THREE.MeshStandardMaterial({ color: 0xdfe4e8, roughness: .95, transparent: true, opacity: 0, depthWrite: false }));
+    fl.rotation.x = -Math.PI / 2; fl.position.y = -.002; fl.renderOrder = -1; this.scene.add(fl);
     this.camera = new THREE.PerspectiveCamera(32, 1, .01, 50); this.camera.position.set(0, 1.1, 4.2);
     this.controls = new OrbitControls(this.camera, R.domElement); this.controls.target.set(0, .95, 0); this.controls.enableDamping = true;
     this.controls.minDistance = .15; this.controls.maxDistance = 12;
     this.pose = Object.fromEntries(POSE_KEYS.map(k => [k, 0])); this.target = { ...this.pose }; this.target.breath = 1;
     this.live = true; this.parts = new Map(); this.layerMeshes = Object.fromEntries(LAYERS.map(l => [l, []]));
-    this.layerOn = { clothes: true, hair: true, skin: true, muscles: false, organs: false, skeleton: false };
+    this.layerOn = { clothes: true, hair: true, skin: true, muscles: false, organs: false, skeleton: false }; this.depth = "dressed";
     this.opacity = { skin: 1, muscles: 1, organs: 1, skeleton: 1, clothes: 1, hair: 1 };
     this.hl = new Map(); this.camTween = null; this.clock = new THREE.Clock(); this.t = 0;
     new ResizeObserver(() => this.resize()).observe(el); this.resize();
@@ -212,6 +244,9 @@ export class HumanBody extends EventTarget {
       if (k >= 0) { const si = ul.geometry.attributes.skinIndex, sw = ul.geometry.attributes.skinWeight; for (let i = 0; i < si.count; i++) { si.setXYZW(i, k, 0, 0, 0); sw.setXYZW(i, 1, 0, 0, 0); } si.needsUpdate = sw.needsUpdate = true; }
     }
     this._balls = ["toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean);
+    const C = { root: .1, spine04: .1, spine03: .1, spine02: .1, spine01: .1, neck02: .055, head: .1, upperarm01L: .055, upperarm01R: .055, lowerarm01L: .035, lowerarm01R: .035,
+      wristL: .025, wristR: .025, "finger3-1L": .012, "finger3-1R": .012, lowerleg01L: .05, lowerleg01R: .05, upperleg02L: .075, upperleg02R: .075, footL: .055, footR: .055, "toe2-1L": .015, "toe2-1R": .015, "toe2-3L": .01, "toe2-3R": .01 };
+    this._contacts = Object.entries(C).filter(([n]) => this.bones[n]).map(([n, r]) => [this.bones[n], r]);
     this._feetRest = ["footL", "footR", "toe2-1L", "toe2-1R"].map(n => this.bones[n]).filter(Boolean).map(b => [b, b.getWorldPosition(new THREE.Vector3()).y]);
     this._ballRest = this._ballPos();
   }
@@ -243,10 +278,13 @@ export class HumanBody extends EventTarget {
   }
   exercise(name, reps, speed = 1) {
     const E = EXERCISES[name]; if (!E) throw new Error("unknown exercise " + name);
-    if (E.program) {           // several exercises in a row: one long frame list
-      const frames = []; for (const n of E.program) { const X = EXERCISES[n]; for (let r = 0; r < X.loop; r++) frames.push(...X.frames); if (X.end) frames.push(X.end); }
+    const onFloor = (this.lying || 0) > .5, startFrames = n => { const X = EXERCISES[n]; return X.start && !onFloor ? EXERCISES[X.start].frames : []; };
+    if (E.program) {           // several exercises in a row: one long frame list (getting down only at the start)
+      const frames = [...startFrames(E.program[0])]; for (const n of E.program) { const X = EXERCISES[n]; for (let r = 0; r < X.loop; r++) frames.push(...X.frames); if (X.end) frames.push(X.end); }
       return this.animate(frames, { loop: reps || 1, speed, end: { pose: "stand", dur: 1.5 }, name });
     }
+    const pre = startFrames(name);
+    if (pre.length) { const frames = [...pre]; for (let r = 0; r < (reps || E.loop); r++) frames.push(...E.frames); return this.animate(frames, { loop: 1, speed, end: E.end, name }); }
     return this.animate(E.frames, { loop: reps || E.loop, speed, end: E.end, name });
   }
   // walking in place (as on a treadmill): legs follow typical gait angles, arms swing against the legs
@@ -323,7 +361,7 @@ export class HumanBody extends EventTarget {
     if (this.skinMat) { const u = this.skinMat.userData.u; u.uHideCloth.value = this.layerOn.clothes ? 1 : 0; u.uHideShoes.value = this.layerOn.clothes ? 1 : 0; }
     this.dispatchEvent(new CustomEvent("layers", { detail: { on: { ...this.layerOn }, opacity: { ...this.opacity } } }));
   }
-  setLayer(l, on) { if (l === "all") LAYERS.forEach(x => (this.layerOn[x] = on)); else if (l in this.layerOn) this.layerOn[l] = !!on; this.applyLayers(); }
+  setLayer(l, on) { this.depth = null; if (l === "all") LAYERS.forEach(x => (this.layerOn[x] = on)); else if (l in this.layerOn) this.layerOn[l] = !!on; this.applyLayers(); }
   setOpacity(l, a) { if (l in this.opacity) this.opacity[l] = Math.max(0, Math.min(1, a)); this.applyLayers(); }
   // peel down to one depth: dressed | skin | muscles | skeleton | xray (skin ghosted over muscles over bones)
   peel(depth) {
@@ -331,7 +369,7 @@ export class HumanBody extends EventTarget {
     const P = { dressed: [1, 1, 1, 0, 0, 0], skin: [0, 1, 1, 0, 0, 0], muscles: [0, 0, 0, 1, 0, 0], skeleton: [0, 0, 0, 0, 0, 1], xray: [0, 0, 1, 1, 0, 1],
       muscles_bones: [0, 0, 0, 1, 0, 1], organs: [0, 0, 1, 0, 1, 1], organs_only: [0, 0, 0, 0, 1, 0] }[depth];
     if (!P) throw new Error("unknown depth " + depth);
-    LAYERS.forEach((l, i) => (this.layerOn[l] = !!P[i]));
+    LAYERS.forEach((l, i) => (this.layerOn[l] = !!P[i])); this.depth = depth;
     this.opacity.skin = depth === "xray" ? .18 : depth === "organs" ? .14 : 1; this.opacity.muscles = depth === "xray" ? .45 : depth === "muscles_bones" ? .55 : 1;
     this.applyLayers();
   }
@@ -393,6 +431,18 @@ export class HumanBody extends EventTarget {
     const v = new THREE.Vector3(...(dirs[angle] || dirs.front)).normalize().multiplyScalar(d);
     this.tweenCam(c, c.clone().add(v));
   }
+  // frame the whole body from one side (used when it lies down or stands up)
+  fitView(angle = "front") {
+    this.root.updateMatrixWorld(true); const b = new THREE.Box3(), v = new THREE.Vector3();
+    for (const n of ["head", "root", "footL", "footR", "wristL", "wristR", "lowerleg01L", "upperarm01L", "upperarm01R"]) if (this.bones[n]) b.expandByPoint(this.bones[n].getWorldPosition(v));
+    const c = b.getCenter(new THREE.Vector3()), r = Math.max(.5, b.getSize(new THREE.Vector3()).length() / 2 + .15);
+    const dirs = { front: [0, .12, 1], left: [1, .35, .12], back: [0, .12, -1] }; let d = new THREE.Vector3(...(dirs[angle] || dirs.front));
+    if (angle === "side") {            // lying: look across the body (perpendicular to head-pelvis), from a little above, on the side the face is
+      const ax = this.bones.head.getWorldPosition(new THREE.Vector3()).sub(this.bones.root.getWorldPosition(new THREE.Vector3())); ax.y = 0;
+      d = new THREE.Vector3(-ax.z, 0, ax.x).normalize(); const face = new THREE.Vector3(0, 0, 1).applyQuaternion(this.root.quaternion); if (d.dot(face) < 0) d.negate(); d.y = .45;
+    }
+    d.normalize(); this.tweenCam(c, c.clone().add(d.multiplyScalar(r / Math.tan(this.camera.fov * D2R / 2) * 1.2)), 1.2);
+  }
   zoom(f) { const c = this.controls.target, p = this.camera.position.clone().sub(c).multiplyScalar(1 / f).add(c); this.tweenCam(c.clone(), p); }
   resetView() { this.tweenCam(new THREE.Vector3(0, .95, 0), new THREE.Vector3(0, 1.1, 4.2)); }
   tweenCam(target, pos, dur = .9) { this.camTween = { t0: this.t, dur, a: { t: this.controls.target.clone(), p: this.camera.position.clone() }, b: { t: target, p: pos } }; }
@@ -421,6 +471,7 @@ export class HumanBody extends EventTarget {
   _applyPose() {
     const P = this.pose; this._e = this._e || new THREE.Euler(); this._q = this._q || new THREE.Quaternion(); this._q2 = this._q2 || new THREE.Quaternion();
     for (const k in this.bones) { const B = this.bones[k]; if (B.userData.rest) B.quaternion.copy(B.userData.rest); if (B.userData.restPos && k !== "root") B.position.copy(B.userData.restPos); }
+    this._e.set(P.bodyPitch * D2R, 0, P.bodyRoll * D2R, "XYZ"); this.root.quaternion.setFromEuler(this._e);
     const br = P.breath * (this.live ? Math.sin(this.t * 1.6) : 0);
     // trunk: hip hinge at the pelvis, then the spine segment by segment, then the neck
     this._rot("root", P.hipFlex, 0, 0);
@@ -476,7 +527,16 @@ export class HumanBody extends EventTarget {
       this._feetRest.forEach(([b, r]) => { lo = Math.min(lo, b.getWorldPosition(v).y - r); });
       if (isFinite(lo)) dy = -lo;
     }
-    this.root.position.set(rest.x - f.x, dy, rest.z - f.z);
+    // on the floor: whatever is lowest (back, pelvis, head, knees, hands, feet: bone centres less the body's thickness
+    // there) lies on the floor, and the pelvis stays over the middle of the floor
+    const lying = Math.min(1, Math.max(0, (Math.abs(P.bodyPitch) + Math.abs(P.bodyRoll) - 8) / 30));
+    if (lying > 0 && this._contacts) {
+      const v = new THREE.Vector3(); let lo = Infinity;
+      for (const [b, r] of this._contacts) lo = Math.min(lo, b.getWorldPosition(v).y - r);
+      const pel = this.bones.root.getWorldPosition(new THREE.Vector3());
+      this.root.position.set((rest.x - f.x) * (1 - lying) - pel.x * lying, dy * (1 - lying) - lo * lying, (rest.z - f.z) * (1 - lying) - pel.z * lying);
+    } else this.root.position.set(rest.x - f.x, dy, rest.z - f.z);
+    this.lying = lying;
   }
   // face: the jaw turns about the jaw joint; eyelids turn about the eye centre; mouth corners and brows are moved
   // (millimetres, in the body frame: x to the body's left, y up, z forward); the eyes turn for the gaze
@@ -502,6 +562,8 @@ export class HumanBody extends EventTarget {
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       this._applyPose();
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
+      this.floor.material.opacity = .8 * (this.lying || 0); this.floor.visible = this.lying > .01;
+      const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); }
     }
     if (this.camTween) {
       const T = this.camTween, u = Math.min(1, (this.t - T.t0) / T.dur), e = u * u * (3 - 2 * u);
