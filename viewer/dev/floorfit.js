@@ -75,3 +75,22 @@ export function sitHands(Body) {
   }
   return best;
 }
+// rib hump in the Adams forward bend: height of the back skin left vs right of the spine at rib level
+export function hump(Body, pose) {
+  const b = Body.body; if (pose) Body.run([{ op: "pose", preset: pose }, { op: "snap" }]); b.root.updateMatrixWorld(true);
+  const m = b.parts.get("Body"), p = m.geometry.attributes.position, v = new THREE.Vector3(), sp = b.bones.spine02.getWorldPosition(new THREE.Vector3()), sp1 = b.bones.spine01.getWorldPosition(new THREE.Vector3());
+  const c = sp.clone().lerp(sp1, .5); let L = -1e9, R = -1e9;
+  for (let i = 0; i < p.count; i++) { m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld); if (Math.abs(v.z - c.z) > .06) continue; const dx = v.x - c.x;
+    if (dx > .05 && dx < .12) L = Math.max(L, v.y); else if (dx < -.05 && dx > -.12) R = Math.max(R, v.y); }
+  return { pose, left_mm: Math.round((L - c.y) * 1000), right_mm: Math.round((R - c.y) * 1000), diff_mm: Math.round((R - L) * 1000) };
+}
+export function humpSweep(Body) {
+  const out = [];
+  for (const tw of [-30, -20, -10, 10, 20, 30]) for (const sd of [0, 1]) {
+    const b = Body.body, base = { ...b._frameState(Object.fromEntries(Object.keys(b.pose).map(k => [k, 0])), { pose: "adams_normal" }) };
+    Object.assign(base, { thoracicTwist: tw, thoracicSide: sd ? -16 : 0, lumbarSide: sd ? 11 : 0, lumbarTwist: sd ? 7 * Math.sign(tw) * -1 * -1 : 0 });
+    Body.run([{ op: "set", ...base }, { op: "snap" }]);
+    const r = hump(Body, null); out.push({ tw, sides: sd, diff_mm: r.diff_mm });
+  }
+  return out;
+}

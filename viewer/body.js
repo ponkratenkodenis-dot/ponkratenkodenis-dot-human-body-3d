@@ -26,7 +26,8 @@ export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "n
   "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
   "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR", "forearmL", "forearmR", "spreadL", "spreadR",
   "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR",
-  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "bodyPitch", "bodyRoll", "seated", "chair", "box", "load", "breath"];
+  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "bodyPitch", "bodyRoll", "seated", "chair", "box", "load",
+  "lumbarFlex", "lumbarSide", "lumbarTwist", "thoracicFlex", "thoracicSide", "thoracicTwist", "breath"];
 // face keys are kept too when a whole-body preset is chosen
 export const FACE_KEYS = ["jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY"];
 // expressions: jaw opening (deg), smile (+ corners up and out, - down), brows (+ up, - down and together), blinks 0..1
@@ -72,6 +73,17 @@ export const PRESETS = {
   all_fours: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60 },
   cat_floor: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60, spineFlex: 28, neckFlex: 30 },
   cow_floor: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60, spineFlex: -22, neckFlex: -30 },
+  // posture types (after Kendall): curvature of each region, pelvic tilt as hipFlex (+ forward = anterior tilt)
+  posture_ideal: { armLRaise: -38, armRRaise: -38, elbowL: -45, elbowR: -45 },
+  posture_kyphosis: { thoracicFlex: 26, neckFlex: -14, lumbarFlex: -4, armLRaise: -38, armRRaise: -38, armLForward: 8, armRForward: 8, elbowL: -40, elbowR: -40 },
+  posture_lordosis: { hipFlex: 14, lumbarFlex: -20, thoracicFlex: 10, neckFlex: -4, armLRaise: -38, armRRaise: -38, elbowL: -45, elbowR: -45 },
+  posture_flat_back: { hipFlex: -8, lumbarFlex: 9, thoracicFlex: -6, neckFlex: 6, armLRaise: -38, armRRaise: -38, elbowL: -45, elbowR: -45 },
+  posture_sway_back: { hipFlex: -10, lumbarFlex: 2, thoracicFlex: 22, neckFlex: -14, kneeL: -4, kneeR: -4, armLRaise: -38, armRRaise: -38, elbowL: -45, elbowR: -45 },
+  // right thoracic, left lumbar curve (the most common idiopathic pattern): side bends in opposite directions with vertebral rotation
+  // vertebrae of the thoracic curve turned 20° toward the convexity: the right ribs go back (rib hump ~27 mm in the Adams test, dev/floorfit.js hump)
+  scoliosis: { thoracicSide: -16, thoracicTwist: -20, lumbarSide: 11, lumbarTwist: 0, neckSide: 5, armLRaise: -38, armRRaise: -38, elbowL: -45, elbowR: -45 },
+  adams_test: { thoracicSide: -16, thoracicTwist: -20, lumbarSide: 11, lumbarTwist: 0, spineFlex: 45, hipFlex: 55, neckFlex: 25, armLForward: 75, armRForward: 75, elbowL: -45, elbowR: -45 },
+  adams_normal: { spineFlex: 45, hipFlex: 55, neckFlex: 25, armLForward: 75, armRForward: 75, elbowL: -45, elbowR: -45 },
   // on a chair (thighs level, knees 90°) and lifting a box; seated/chair/box/load drive the props and the disc estimate
   sit_chair: { seated: 1, chair: 1, kneeL: 90, kneeR: 90, legLForward: 22.5, legRForward: 22.5, armLForward: -10, armRForward: -10, armLRaise: -85, armRRaise: -85, elbowL: 50, elbowR: 50 },
   sit_upright: { seated: 1, chair: 1, kneeL: 90, kneeR: 90, legLForward: 22.5, legRForward: 22.5, armLForward: -10, armRForward: -10, armLRaise: -85, armRRaise: -85, elbowL: 50, elbowR: 50, spineFlex: -6, neckFlex: -4 },
@@ -117,6 +129,15 @@ export const EXERCISES = {
   lift_right: { ru: "Подъём груза: правильно", loop: 2, frames: [{ pose: "stand", set: { box: 1 }, dur: 1.5, hold: .5, say: "Коробка 20 кг на полу" }, { pose: "squat_lift", dur: 2.4, hold: 1, say: "Колени согнуты, спина ровная, груз между ног — около 1,7 МПа" },
     { pose: "hold_close", dur: 2.2, hold: 1.5, say: "Груз у тела — около 1,1 МПа" }, { pose: "squat_lift", dur: 2.4, hold: .5, say: "Опускайте так же: присед, спина ровная" }], end: { pose: "stand", set: { box: 1 }, dur: 1.8, say: "Коробка на полу" } },
   lift_compare: { ru: "Подъём груза: сравнить", program: ["lift_wrong", "lift_right"] },
+  // posture and scoliosis (the spine coloured, the view chosen per frame)
+  posture_types: { ru: "Типы осанки", loop: 1, spine: true, frames: [{ pose: "posture_ideal", view: "left", dur: 2, hold: 3, say: "Нормальная осанка: ухо, плечо, таз и лодыжка на одной линии" },
+    { pose: "posture_kyphosis", dur: 2.5, hold: 3.5, say: "Сутулость: грудной кифоз усилен, голова впереди" }, { pose: "posture_lordosis", dur: 2.5, hold: 3.5, say: "Гиперлордоз: таз наклонён вперёд, поясница прогнута" },
+    { pose: "posture_flat_back", dur: 2.5, hold: 3.5, say: "Плоская спина: изгибы сглажены, таз наклонён назад" }, { pose: "posture_sway_back", dur: 2.5, hold: 3.5, say: "Сутулость с провисанием: таз впереди, корпус отклонён назад" },
+    { pose: "posture_ideal", dur: 2.5, hold: 2, say: "Снова нормальная осанка" }], end: { pose: "stand", dur: 2 } },
+  scoliosis_adams: { ru: "Сколиоз и тест Адамса", loop: 1, spine: true, frames: [{ pose: "posture_ideal", view: "back", dur: 2, hold: 2.5, say: "Норма: позвоночник прямой, если смотреть сзади" },
+    { pose: "scoliosis", dur: 3, hold: 4, say: "Сколиоз: боковой изгиб с поворотом позвонков, одно плечо выше" },
+    { pose: "adams_test", peel: "skin", view: { at: "spine02", dir: [0, .35, -1], dist: 1.2 }, dur: 3, hold: 5, say: "Тест Адамса: наклон вперёд, со стороны выпуклости видно рёберное выбухание" },
+    { pose: "adams_normal", dur: 2.5, hold: 3, say: "Без сколиоза спина в наклоне симметрична" }], end: { pose: "stand", dur: 2.2 } },
   // on the floor
   knees_to_chest: { ru: "Колени к груди (лёжа)", loop: 3, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 2, say: "Отпустите колени" }, { pose: "knees_to_chest", dur: 2, hold: 2, say: "Колени к груди, мягко держите" }], end: { pose: "hook_lying", dur: 1.5 } },
   bridge: { ru: "Ягодичный мостик", loop: 5, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 1.6, hold: .4, say: "Опустите таз" }, { pose: "bridge", dur: 1.6, hold: 1.5, say: "Таз вверх, давите пятками" }], end: { pose: "hook_lying", dur: 1.5 } },
@@ -295,8 +316,8 @@ export class HumanBody extends EventTarget {
   spineState() {
     const P = this.pose, sum = (o, ks) => ks.reduce((a, k) => a + (o[k] || 0), 0), rb = this.regionBend || {};
     const R = {
-      lumbar: { flex: P.spineFlex * sum(SHARE.flex, REGION.lumbar) + ((rb.lumbar || {}).flex || 0), side: P.spineSide * sum(SHARE.side, REGION.lumbar) + ((rb.lumbar || {}).side || 0), twist: P.spineTwist * sum(SHARE.twist, REGION.lumbar) + ((rb.lumbar || {}).twist || 0) },
-      thoracic: { flex: P.spineFlex * sum(SHARE.flex, REGION.thoracic) + ((rb.thoracic || {}).flex || 0), side: P.spineSide * sum(SHARE.side, REGION.thoracic) + ((rb.thoracic || {}).side || 0), twist: P.spineTwist * sum(SHARE.twist, REGION.thoracic) + ((rb.thoracic || {}).twist || 0) },
+      lumbar: { flex: P.spineFlex * sum(SHARE.flex, REGION.lumbar) + ((rb.lumbar || {}).flex || 0) + P.lumbarFlex, side: P.spineSide * sum(SHARE.side, REGION.lumbar) + ((rb.lumbar || {}).side || 0) + P.lumbarSide, twist: P.spineTwist * sum(SHARE.twist, REGION.lumbar) + ((rb.lumbar || {}).twist || 0) + P.lumbarTwist },
+      thoracic: { flex: P.spineFlex * sum(SHARE.flex, REGION.thoracic) + ((rb.thoracic || {}).flex || 0) + P.thoracicFlex, side: P.spineSide * sum(SHARE.side, REGION.thoracic) + ((rb.thoracic || {}).side || 0) + P.thoracicSide, twist: P.spineTwist * sum(SHARE.twist, REGION.thoracic) + ((rb.thoracic || {}).twist || 0) + P.thoracicTwist },
       cervical: { flex: P.neckFlex + ((rb.cervical || {}).flex || 0), side: P.neckSide + ((rb.cervical || {}).side || 0), twist: P.neckTwist + ((rb.cervical || {}).twist || 0) }
     };
     for (const k in R) for (const a in R[k]) R[k][a] = Math.round(R[k][a]);
@@ -400,7 +421,7 @@ export class HumanBody extends EventTarget {
     this.walking = null; const segs = []; let st = { ...this.target };
     const L = Math.max(1, Math.min(50, loop));
     const push = (f, r) => { const nx = this._frameState(st, f); segs.push({ a: st, b: nx, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0),
-      say: f.say || "", ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; };
+      say: f.say || "", view: f.view || null, peel: f.peel || null, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; };
     for (let r = 0; r < L; r++) frames.forEach(f => push(f, r));
     if (end) push({ _rep: 0, ...end }, 0);
     this.anim = { segs, t: 0, speed: Math.max(.1, +speed || 1), total: segs.reduce((s, g) => s + g.dur + g.hold, 0), name, i: -1 };
@@ -412,6 +433,7 @@ export class HumanBody extends EventTarget {
     const onFloor = (this.lying || 0) > .5, tag = (fs, ex, rep, n) => fs.map(f => ({ ...f, _ex: ex, _rep: rep, _reps: n }));
     const startFrames = n => { const X = EXERCISES[n]; return X.start && !onFloor ? tag(EXERCISES[X.start].frames, n, 0, 0) : []; };
     const one = (n, k) => { const X = EXERCISES[n], out = []; for (let r = 0; r < k; r++) out.push(...tag(X.frames, X.hidden ? name : n, X.hidden ? 0 : r + 1, X.hidden ? 0 : k)); if (X.end) out.push(...tag([X.end], X.hidden ? name : n, 0, 0)); return out; };
+    if (E.spine) this.showSpine(true);                   // posture lessons: the spine is the subject
     const frames = [];
     if (E.program) { for (let r = 0; r < (reps || 1); r++) { frames.push(...startFrames(E.program[0])); for (const n of E.program) frames.push(...one(n, EXERCISES[n].loop)); } }
     else frames.push(...startFrames(name), ...one(name, reps || E.loop));
@@ -435,7 +457,7 @@ export class HumanBody extends EventTarget {
       const A = this.anim; if (!this.paused) A.t += dt * A.speed; let t = A.t, i = 0;
       while (i < A.segs.length && t > A.segs[i].dur + A.segs[i].hold) { t -= A.segs[i].dur + A.segs[i].hold; i++; }
       const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
-      if (i !== A.i && i < A.segs.length) { A.i = i; this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
+      if (i !== A.i && i < A.segs.length) { A.i = i; if (g.peel) this.peel(g.peel); if (g.view) (typeof g.view === "string" ? this.view(g.view) : this.lookFrom(g.view)); this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
       for (const k of POSE_KEYS) if (k !== "breath") { const v = g.a[k] + (g.b[k] - g.a[k]) * e; this.pose[k] = this.target[k] = v; }
       if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
     }
@@ -585,6 +607,11 @@ export class HumanBody extends EventTarget {
     const half = Math.min(this.camera.fov * D2R / 2, Math.atan(Math.tan(this.camera.fov * D2R / 2) * this.camera.aspect));   // narrow screens: the width decides
     d.normalize(); this.tweenCam(c, c.clone().add(d.multiplyScalar(r / Math.tan(half) * 1.2)), 1.2);
   }
+  // camera from a direction toward a bone, e.g. { at: "spine02", dir: [0, .55, -1], dist: 1.1 } (behind and above the back)
+  lookFrom({ at = "spine02", dir = [0, 0, 1], dist = 1.5 } = {}) {
+    this.root.updateMatrixWorld(true); const c = (this.bones[at] || this.bones.root).getWorldPosition(new THREE.Vector3());
+    this.tweenCam(c, c.clone().add(new THREE.Vector3(...dir).normalize().multiplyScalar(dist)), 1.2);
+  }
   zoom(f) { const c = this.controls.target, p = this.camera.position.clone().sub(c).multiplyScalar(1 / f).add(c); this.tweenCam(c.clone(), p); }
   resetView() { this.tweenCam(new THREE.Vector3(0, .95, 0), new THREE.Vector3(0, 1.1, 4.2)); }
   tweenCam(target, pos, dur = .9) { this.camTween = { t0: this.t, dur, a: { t: this.controls.target.clone(), p: this.camera.position.clone() }, b: { t: target, p: pos } }; }
@@ -618,6 +645,8 @@ export class HumanBody extends EventTarget {
     // trunk: hip hinge at the pelvis, then the spine segment by segment, then the neck
     this._rot("root", P.hipFlex, 0, 0);
     for (const s of SPINE) this._rot(s, P.spineFlex * SHARE.flex[s] - (s === "spine01" ? br * .9 : 0), P.spineTwist * SHARE.twist[s], P.spineSide * SHARE.side[s]);
+    // per-region curvature (posture types, scoliosis): spread evenly over the region's segments
+    for (const r of ["lumbar", "thoracic"]) { const segs = REGION[r], f = P[r + "Flex"], sd = P[r + "Side"], tw = P[r + "Twist"]; if (f || sd || tw) for (const sg of segs) this._rot(sg, f / segs.length, tw / segs.length, sd / segs.length); }
     if (this.regionBend) for (const r in this.regionBend) { const rb = this.regionBend[r], segs = REGION[r] || []; for (const s of segs) this._rot(s, rb.flex / segs.length, rb.twist / segs.length, rb.side / segs.length); }
     for (const s of NECK) this._rot(s, P.neckFlex * (SHARE.nflex[s] || 0) + (s === "neck01" ? br * .6 : 0), P.neckTwist * (SHARE.ntwist[s] || 0), P.neckSide * (SHARE.nside[s] || 0));
     this._rot("clavicleL", 0, 0, -br * .5); this._rot("clavicleR", 0, 0, br * .5);

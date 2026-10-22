@@ -70,6 +70,7 @@ code,.mono{font-family:var(--f-mono)}
 /* exercise caption: what to do now, what works, how to do it well */
 .excard{position:absolute;z-index:3;left:calc(342px + 14px);bottom:calc(34px + env(safe-area-inset-bottom,0px));width:min(340px,calc(100% - 356px - 180px));min-width:250px;max-height:52vh;overflow:auto;
   background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px 14px 10px;box-shadow:0 10px 30px -18px rgba(10,30,40,.5);display:flex;flex-direction:column;gap:7px}
+.excard>*{flex-shrink:0}
 .excard h2{font:600 1.08rem/1.2 var(--f-display);margin:0}
 .excard .top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .excard .rep{font:500 .78rem var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -181,6 +182,7 @@ code,.mono{font-family:var(--f-mono)}
     <p class="goal" id="exGoal"></p>
     <ul id="exCues"></ul>
     <p class="mus" id="exMus"></p>
+    <p class="mus" id="exSpine" hidden></p>
     <div class="disc" id="exDisc" hidden><span class="hint">Давление в диске L4–L5</span><b id="exDiscVal"></b><span class="meter"><i id="exDiscBar"></i></span><span class="hint" id="exDiscBasis"></span></div>
     <div class="acts"><button class="chip" id="exShow">Показать работающие мышцы</button><button class="chip" id="exStop">Стоп</button></div>
     <p class="note" id="exNote"></p>
@@ -296,6 +298,11 @@ body.addEventListener("motion-end", e => {
   $("exCard").hidden = true; exNow = null; body.clearHighlight(); body.setShift(0); if (exZoomed) { body.zoom(1 / .78); exZoomed = false; }
   if (window.parent !== window) window.parent.postMessage({ type: "body_event", event: "motion-end", detail: e.detail }, "*");
 });
+// posture lessons: what each region does, under the caption
+setInterval(() => {
+  const I = exNow && INFO[exNow]; $("exSpine").hidden = !(I && I.spineText) || $("exCard").hidden; if ($("exSpine").hidden || !body.root) return;
+  const S = body.spineState(); $("exSpine").innerHTML = "<b>Позвоночник:</b> " + ["cervical", "thoracic", "lumbar"].map(k => RN[k].toLowerCase() + " — " + describe(S.regions[k])).join("; ");
+}, 300);
 // lessons about sitting and lifting: the disc estimate under the caption
 setInterval(() => {
   const I = exNow && INFO[exNow]; $("exDisc").hidden = !(I && I.disc) || $("exCard").hidden; if ($("exDisc").hidden || !body.root) return;
