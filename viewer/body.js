@@ -355,6 +355,11 @@ export class HumanBody extends EventTarget {
     const sit = (L.flex >= 0 ? .46 + .44 * Math.min(1, L.flex / 15) : .46 + .09 * Math.min(1, -L.flex / 3)) + .6 * Math.sin(Math.min(90, Math.max(0, flexDeg - Math.max(0, L.flex))) * D2R) * .6;
     stand = stand * (1 - seat) + sit * seat;
     // a load in the hands (Wilke 2001, 20 kg): close to the body 1.1, flexed knees 1.7, round flexed back 2.3 MPa; scaled by mass
+    // body build: the measured values are for the model's own build. With another build on the same skeleton the
+    // compression of the disc follows the mass carried above it (trunk, arms, head: its weight and the moment of it
+    // when bent), so the body part scales with that mass; the hand load and lying (disc swelling, muscle tone) do not
+    const M = this.massProps(), mf = M ? M.upperFactor : 1;
+    stand *= mf;
     stand += kg / 20 * (.6 + .6 * Math.sin(Math.min(90, flexDeg) * D2R) ** 2);
     const lie = side ? .12 : .10, mpa = stand * (1 - lying) + lie * lying;
     const near20 = Math.abs(kg - 20) < 1, sitM = seat > .95 && lying < .05 && flexDeg - Math.max(0, L.flex) < 8;
@@ -362,8 +367,45 @@ export class HumanBody extends EventTarget {
       : kg > 1 ? null : sitM ? (Math.abs(L.flex) < 4 ? "сидя" : L.flex < -3 ? "сидя, спина активно выпрямлена" : L.flex > 14 ? "сидя, спина согнута" : null)
       : seat > .05 ? null : (lying > .95 && Math.abs(this.pose.spineFlex) < 5 && Math.abs(this.pose.legLForward) < 5 && this.pose.kneeL < 10) ? (side ? "лёжа на боку" : "лёжа")
       : (lying < .05 && incl < 6 && Math.abs(L.side) < 4 && Math.abs(L.twist) < 4) ? "стоя" : (lying < .05 && flexDeg > 60 && lat < 10) ? "наклон вперёд стоя" : null;
-    return { mpa: Math.round(mpa * 100) / 100, pctOfStanding: Math.round(mpa / .5 * 100), trunkIncline: Math.round(incl), basis: measured ? "измерено: " + measured : "оценка между измеренными позами",
+    const massNote = Math.abs(mf - 1) > .015 ? `; пересчитано на массу над диском ×${mf.toFixed(2).replace(".", ",")} (оценка)` : "";
+    return { mpa: Math.round(mpa * 100) / 100, pctOfStanding: Math.round(mpa / .5 * 100), trunkIncline: Math.round(incl), basis: (measured ? "измерено: " + measured : "оценка между измеренными позами") + massNote,
+      massFactor: Math.round(mf * 100) / 100, bodyKg: M ? M.bodyKg : null, upperKg: M ? M.upperKg : null,
       source: "Wilke et al. 1999, Spine 24(8):755–762; Wilke et al. 2001, Clin Biomech 16 Suppl 1:111–126 (один испытуемый, диск L4–L5)", load: kg, seated: seat > .5 };
+  }
+  // mass from the volume of the skin in the rest pose with the current build (density 1 kg/l): the whole body, and the
+  // part the L4-L5 disc carries (trunk above the disc, arms and head). Signed tetrahedra from a point on the horizontal
+  // plane through the disc: the caps a cut would add lie in that plane and add no volume, so the part above the plane is
+  // exact; the arms are counted whole wherever they hang
+  massProps() {
+    const sk = this.layerMeshes.skin.find(m => m.name === "Body"), disc = this.parts.get("Intervertebral disc L4-L5"); if (!sk || !disc) return null;
+    const key = JSON.stringify(this.shape); if (this._mass && this._mass.key === key) return this._mass;
+    const g = sk.geometry, p = g.attributes.position, n = p.count, idx = g.index ? g.index.array : null, nt = idx ? idx.length / 3 : n / 3, B = sk.bindMatrix.elements;
+    if (!this._massPre) {
+      disc.geometry.computeBoundingBox(); const c = disc.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(disc.isSkinnedMesh ? disc.bindMatrix : disc.matrixWorld);
+      const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bones = sk.skeleton.bones, arm = new Uint8Array(n);
+      for (let i = 0; i < n; i++) { let bj = 0, bw = -1; for (let j = 0; j < 4; j++) if (sw.getComponent(i, j) > bw) { bw = sw.getComponent(i, j); bj = si.getComponent(i, j); }
+        arm[i] = /^(clavicle|shoulder|upperarm|lowerarm|wrist|metacarpal|finger)/i.test(bones[bj].name) ? 1 : 0; }
+      this._massPre = { y0: c.y, arm };
+    }
+    const { y0, arm } = this._massPre, MP = g.morphAttributes.position || [], W = new Float32Array(n * 3);
+    const vol = inf => {
+    for (let i = 0; i < n; i++) {
+      let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      for (let q = 0; q < MP.length; q++) if (inf[q]) { x += MP[q].getX(i) * inf[q]; y += MP[q].getY(i) * inf[q]; z += MP[q].getZ(i) * inf[q]; }
+      W[i * 3] = B[0] * x + B[4] * y + B[8] * z + B[12]; W[i * 3 + 1] = B[1] * x + B[5] * y + B[9] * z + B[13] - y0; W[i * 3 + 2] = B[2] * x + B[6] * y + B[10] * z + B[14];
+    }
+    let all = 0, up = 0;
+    for (let t = 0; t < nt; t++) {
+      const a = idx ? idx[t * 3] : t * 3, b = idx ? idx[t * 3 + 1] : t * 3 + 1, c = idx ? idx[t * 3 + 2] : t * 3 + 2;
+      const ax = W[a * 3], ay = W[a * 3 + 1], az = W[a * 3 + 2], bx = W[b * 3], by = W[b * 3 + 1], bz = W[b * 3 + 2], cx = W[c * 3], cy = W[c * 3 + 1], cz = W[c * 3 + 2];
+      const v = (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+      all += v; if (ay + by + cy > 0 || arm[a] + arm[b] + arm[c] >= 2) up += v;
+    }
+    return { bodyKg: Math.round(Math.abs(all) * 1000 * 10) / 10, upperKg: Math.round(Math.abs(up) * 1000 * 10) / 10 }; };
+    if (!this._massModel) this._massModel = vol([]);
+    const r = { key, ...vol(sk.morphTargetInfluences || []) };
+    r.upperFactor = r.upperKg / this._massModel.upperKg; r.model = this._massModel;
+    return (this._mass = r);
   }
   // colour the spine on the model: amber = flexion, teal = extension, violet = bending to the side or twisting; the L4-L5 disc by its load
   showSpine(on = true) {

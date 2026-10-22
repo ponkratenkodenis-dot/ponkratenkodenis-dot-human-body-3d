@@ -132,6 +132,7 @@ code,.mono{font-family:var(--f-mono)}
         </div></div>
       <div class="group"><span class="label">Телосложение</span>
         <div id="shapeRows"></div>
+        <p class="hint" id="massTxt"></p>
         <p class="hint">В пределах параметров MakeHuman, на котором построено тело. Одежда и волосы подстраиваются вместе с кожей. Мышцы под кожей тоже: с большей мышечной массой они толще, а когда кожа ложится ближе (худее), остаются под ней. Кости не меняются.</p></div>
       <div class="group" id="layerRows"><span class="label">Слои и прозрачность</span></div>
       <p class="hint">Нажмите на любую часть тела, чтобы узнать, что это. Вращайте модель пальцем или мышью, колесом и щипком приближайте.</p>
@@ -270,6 +271,7 @@ for (const S of SHAPES) {
   inp.oninput = () => { body.setShape({ [k]: +inp.value / 100 }); $("sho-" + k).textContent = shapeText(S, +inp.value); };
   inp.onchange = () => log({ op: "shape", [k]: +inp.value / 100 });
 }
+setInterval(() => { if (!body.root) return; const M = body.massProps(); if (M) $("massTxt").textContent = `Масса тела ≈ ${Math.round(M.bodyKg)} кг, из них диск L4–L5 несёт ≈ ${Math.round(M.upperKg)} кг (по объёму модели)` + (Math.abs(M.upperFactor - 1) > .015 ? `; давление в диске ×${M.upperFactor.toFixed(2).replace(".", ",")}` : ""); }, 500);
 setInterval(() => { for (const S of SHAPES) { const k = S[0], inp = $("sh-" + k), v = Math.round(body.shape[k] * 100); if (document.activeElement !== inp && +inp.value !== v) { inp.value = v; $("sho-" + k).textContent = shapeText(S, v); } } }, 400);
 $("life").onchange = e => (body.live = e.target.checked);
 $("mDrive").onchange = e => body.muscles({ drive: e.target.checked });

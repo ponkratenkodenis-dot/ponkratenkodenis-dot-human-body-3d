@@ -28,7 +28,7 @@ export const COMMANDS = {
   view:      { desc: "Ракурс: front | back | left | right | top | three_quarter.", args: { angle: "string" } },
   zoom:      { desc: "Приблизить (>1) или отдалить (<1).", args: { factor: "number" } },
   scale:     { desc: "Масштаб модели (1 = 1,75 м).", args: { value: "number" } },
-  shape:     { desc: "Телосложение, каждый параметр от -1 до 1, 0 — как у модели: weight — полнота (-1 худее, 1 полнее), muscle — мышечная масса, breast — размер груди. Можно передать один или несколько. Одежда, волосы и мышцы под кожей подстраиваются; кости не меняются.", args: { weight: "number?", muscle: "number?", breast: "number?" } },
+  shape:     { desc: "Телосложение, каждый параметр от -1 до 1, 0 — как у модели: weight — полнота (-1 худее, 1 полнее), muscle — мышечная масса, breast — размер груди. Можно передать один или несколько. Одежда, волосы и мышцы под кожей подстраиваются; кости не меняются. Возвращает массу тела по объёму модели и сколько из неё несёт диск L4–L5; давление в диске (spine_state) пересчитывается на эту массу.", args: { weight: "number?", muscle: "number?", breast: "number?" } },
   life:      { desc: "Дыхание и микродвижения вкл/выкл.", args: { on: "boolean" } },
   reset:     { desc: "Стойка, все слои по умолчанию, камера спереди.", args: {} },
   list:      { desc: "Справка: what = parts | vertebrae | presets | layers | commands; layer — фильтр для parts.", args: { what: "string", layer: "string?" } },
@@ -100,7 +100,7 @@ export class Commander {
       case "view": b.view(c.angle); return { ok: true };
       case "zoom": b.zoom(c.factor || 1.5); return { ok: true };
       case "scale": b.setScale(c.value || 1); return { ok: true };
-      case "shape": return { ok: true, shape: b.setShape(c) };
+      case "shape": { const shape = b.setShape(c), M = b.massProps(); return { ok: true, shape, bodyKg: M && M.bodyKg, discCarriesKg: M && M.upperKg, discPressureFactor: M && Math.round(M.upperFactor * 100) / 100 }; }
       case "life": b.live = !!c.on; return { ok: true };
       case "reset": b.stopMotion(); b.setPose({}, true); b.regionBend = null; b.clearHighlight(); b.peel("dressed"); b.setScale(1); b.resetView(); return { ok: true };
       case "list": {
