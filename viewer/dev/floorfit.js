@@ -47,3 +47,31 @@ export function hug(Body) {
   }
   return best;
 }
+// lifting poses: wrists on the sides of a 40 cm box near the floor (or at the belly), searched by coordinate descent
+export function liftFit(Body, name, keys, target) {
+  const b = Body.body; Body.run([{ op: "reset" }, { op: "snap" }]);
+  const base = Object.fromEntries(Object.keys(b.pose).map(k => [k, 0]));
+  let x = { ...b._frameState(base, { pose: name }) };
+  const V = n => b.bones[n].getWorldPosition(new THREE.Vector3());
+  const ev = q => { Object.assign(b.pose, q); b._applyPose(); b.root.updateMatrixWorld(true);
+    const wl = V("wristL"), wr = V("wristR"), m = wl.clone().add(wr).multiplyScalar(.5), ball = V("toe2-1L"), pel = V("root"), nk = V("neck01");
+    const up = nk.clone().sub(pel).normalize(), incl = Math.acos(up.y) * 180 / Math.PI, kn = Math.abs(V("lowerleg01L").x - V("lowerleg01R").x);
+    return { y: m.y, sep: wl.distanceTo(wr), dz: m.z - (target.zRef === "pelvis" ? pel.z : ball.z), incl, kneeSep: kn }; };
+  const cost = q => { const r = ev(q); return (r.y - target.y) ** 2 * 400 + (r.sep - .44) ** 2 * 200 + (r.dz - target.dz) ** 2 * 200 + ((r.incl - target.incl) / 30) ** 2 + (target.kneeSep ? Math.max(0, target.kneeSep - r.kneeSep) ** 2 * 400 : 0); };
+  let c = cost(x), step = 8;
+  while (step > .5) { let moved = false;
+    for (const k of keys) for (const sg of [-1, 1]) { const y = { ...x }; for (const kk of k.split("|")) y[kk] = (y[kk] || 0) + sg * step; const c2 = cost(y); if (c2 < c) { x = y; c = c2; moved = true; } }
+    if (!moved) step /= 2; }
+  const r = ev(x), out = {}; for (const k of keys) for (const kk of k.split("|")) out[kk] = Math.round(x[kk]);
+  return { name, cost: +c.toFixed(4), ...Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(3)])), set: out };
+}
+export function sitHands(Body) {
+  const b = Body.body, base = Object.fromEntries(Object.keys(b.pose).map(k => [k, 0])); let x = b._frameState(base, { pose: "sit_chair" }), best = null;
+  const V = n => b.bones[n].getWorldPosition(new THREE.Vector3());
+  for (let f = -20; f <= 60; f += 5) for (let r = -85; r <= -10; r += 5) for (let e = -20; e <= 110; e += 10) {
+    Object.assign(b.pose, x, { armLForward: f, armRForward: f, armLRaise: r, armRRaise: r, elbowL: e, elbowR: e }); b._applyPose(); b.root.updateMatrixWorld(true);
+    const tgt = V("upperleg02L").lerp(V("lowerleg01L"), .55).add(new THREE.Vector3(0, .075, 0)), d = V("finger3-1L").distanceTo(tgt);
+    if (!best || d < best.d) best = { d: +d.toFixed(3), f, r, e };
+  }
+  return best;
+}

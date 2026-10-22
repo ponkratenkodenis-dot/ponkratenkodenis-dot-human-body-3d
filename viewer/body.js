@@ -26,7 +26,7 @@ export const POSE_KEYS = ["spineFlex", "spineSide", "spineTwist", "neckFlex", "n
   "armLRaise", "armRRaise", "armLForward", "armRForward", "elbowL", "elbowR", "kneeL", "kneeR", "hipLRaise", "hipRRaise",
   "wristLFlex", "wristRFlex", "ankleL", "ankleR", "toesL", "toesR", "forearmL", "forearmR", "spreadL", "spreadR",
   "thumbL", "indexL", "middleL", "ringL", "littleL", "thumbR", "indexR", "middleR", "ringR", "littleR",
-  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "bodyPitch", "bodyRoll", "breath"];
+  "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY", "legLForward", "legRForward", "bodyPitch", "bodyRoll", "seated", "chair", "box", "load", "breath"];
 // face keys are kept too when a whole-body preset is chosen
 export const FACE_KEYS = ["jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY"];
 // expressions: jaw opening (deg), smile (+ corners up and out, - down), brows (+ up, - down and together), blinks 0..1
@@ -72,6 +72,16 @@ export const PRESETS = {
   all_fours: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60 },
   cat_floor: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60, spineFlex: 28, neckFlex: 30 },
   cow_floor: { bodyPitch: 76, kneeL: 90, kneeR: 90, legLForward: 30, legRForward: 30, armLForward: 76, armRForward: 76, elbowL: -50, elbowR: -50, wristLFlex: -75, wristRFlex: -75, ankleL: 60, ankleR: 60, spineFlex: -22, neckFlex: -30 },
+  // on a chair (thighs level, knees 90°) and lifting a box; seated/chair/box/load drive the props and the disc estimate
+  sit_chair: { seated: 1, chair: 1, kneeL: 90, kneeR: 90, legLForward: 22.5, legRForward: 22.5, armLForward: -10, armRForward: -10, armLRaise: -85, armRRaise: -85, elbowL: 50, elbowR: 50 },
+  sit_upright: { seated: 1, chair: 1, kneeL: 90, kneeR: 90, legLForward: 22.5, legRForward: 22.5, armLForward: -10, armRForward: -10, armLRaise: -85, armRRaise: -85, elbowL: 50, elbowR: 50, spineFlex: -6, neckFlex: -4 },
+  sit_flexed: { seated: 1, chair: 1, kneeL: 90, kneeR: 90, legLForward: 22.5, legRForward: 22.5, armLForward: -10, armRForward: -10, armLRaise: -85, armRRaise: -85, elbowL: 50, elbowR: 50, spineFlex: 28, neckFlex: 18 },
+  sit_lean: { seated: 1, chair: 1, kneeL: 90, kneeR: 90, legLForward: 22.5, legRForward: 22.5, hipFlex: 38, armLForward: 30, armRForward: 30, armLRaise: -30, armRRaise: -30, elbowL: 20, elbowR: 20 },
+  // fitted (dev/floorfit.js liftFit): wrists on the sides of the 40 cm box at the floor; round back = lumbar flexion 45°, knees nearly straight;
+  // squat lift = neutral back, trunk ~48°, knees apart 52 cm so the box is between them; holding = box at the belly
+  stoop_lift: { box: 1, load: 20, hipFlex: 82, spineFlex: 45, kneeL: 10, kneeR: 10, armLForward: 117, armRForward: 117, armLRaise: -10, armRRaise: -10, elbowL: -29, elbowR: -29 },
+  squat_lift: { box: 1, load: 20, hipFlex: 40, kneeL: 141, kneeR: 141, hipLRaise: -17, hipRRaise: -17, armLForward: 36, armRForward: 36, armLRaise: -31, armRRaise: -31, elbowL: -55, elbowR: -55 },
+  hold_close: { box: 1, load: 20, armLForward: -15, armRForward: -15, armLRaise: -53, armRRaise: -53, elbowL: 33, elbowR: 33 },
   // getting up and down: sitting on the floor with straight legs, kneeling upright
   sit_floor: { legLForward: 90, legRForward: 90, armLForward: -25, armRForward: -25, armLRaise: -25, armRRaise: -25, elbowL: -50, elbowR: -50, wristLFlex: -70, wristRFlex: -70, spineFlex: 10 },
   kneel: { kneeL: 92, kneeR: 92, legLForward: -69, legRForward: -69, ankleL: 95, ankleR: 95, armLRaise: -38, armRRaise: -38, elbowL: -30, elbowR: -30 },
@@ -97,6 +107,16 @@ export const EXERCISES = {
     { set: { ...ARMS_DOWN, legRForward: 25, kneeR: 90, legLForward: 0, kneeL: 0, armLForward: 35, armRForward: -20 }, dur: .7, say: "Правое колено вверх" }], end: { pose: "stand", dur: 1.2 } },
   hand_exercise: { ru: "Кулак — разведённые пальцы", loop: 5, frames: [{ hand: { gesture: "fist" }, dur: .8, hold: .3, say: "Кулак" }, { hand: { gesture: "spread" }, dur: .8, hold: .3, say: "Пальцы врозь" }], end: { hand: { gesture: "relaxed" }, dur: .8 } },
   lower_back_standing: { ru: "Разминка для поясницы стоя", program: ["cat_cow", "side_bends", "trunk_rotation", "forward_bend"] },
+  // sitting and lifting (lessons with the disc estimate)
+  sitting_postures: { ru: "Как сидеть: три посадки", loop: 1, frames: [{ pose: "sit_chair", dur: 2.5, hold: 3, say: "Сидя свободно — около 0,46 МПа" }, { pose: "sit_upright", dur: 2, hold: 3, say: "Спина активно выпрямлена — около 0,55 МПа" },
+    { pose: "sit_flexed", dur: 2, hold: 3, say: "Спина согнута — около 0,9 МПа" }, { pose: "sit_chair", dur: 2, hold: 1, say: "Меняйте позу и вставайте каждые 30–40 минут" }], end: { pose: "stand", dur: 2.5, say: "Встаньте" } },
+  sit_to_stand: { ru: "Встать со стула", loop: 3, frames: [{ pose: "sit_chair", dur: 1.6, hold: .6, say: "Стопы под коленями" }, { pose: "sit_lean", dur: 1.2, say: "Корпус вперёд, нос над носками" },
+    { pose: "stand", set: { chair: 1 }, dur: 1.6, hold: .6, say: "Встаньте, толкаясь ногами" }, { pose: "sit_lean", set: { seated: 1 }, dur: 1.8, say: "Садитесь, отводя таз назад" }], end: { pose: "stand", dur: 1.8 } },
+  lift_wrong: { ru: "Подъём груза: неправильно", loop: 2, frames: [{ pose: "stand", set: { box: 1 }, dur: 1.5, hold: .5, say: "Коробка 20 кг на полу" }, { pose: "stoop_lift", dur: 2.2, hold: 1, say: "Круглая спина, прямые ноги — около 2,3 МПа" },
+    { pose: "hold_close", dur: 2, hold: 1, say: "Подъём за счёт спины" }, { pose: "stoop_lift", dur: 2.2, hold: .5, say: "Опускание тоже с круглой спиной" }], end: { pose: "stand", set: { box: 1 }, dur: 1.8, say: "Коробка на полу" } },
+  lift_right: { ru: "Подъём груза: правильно", loop: 2, frames: [{ pose: "stand", set: { box: 1 }, dur: 1.5, hold: .5, say: "Коробка 20 кг на полу" }, { pose: "squat_lift", dur: 2.4, hold: 1, say: "Колени согнуты, спина ровная, груз между ног — около 1,7 МПа" },
+    { pose: "hold_close", dur: 2.2, hold: 1.5, say: "Груз у тела — около 1,1 МПа" }, { pose: "squat_lift", dur: 2.4, hold: .5, say: "Опускайте так же: присед, спина ровная" }], end: { pose: "stand", set: { box: 1 }, dur: 1.8, say: "Коробка на полу" } },
+  lift_compare: { ru: "Подъём груза: сравнить", program: ["lift_wrong", "lift_right"] },
   // on the floor
   knees_to_chest: { ru: "Колени к груди (лёжа)", loop: 3, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 2, say: "Отпустите колени" }, { pose: "knees_to_chest", dur: 2, hold: 2, say: "Колени к груди, мягко держите" }], end: { pose: "hook_lying", dur: 1.5 } },
   bridge: { ru: "Ягодичный мостик", loop: 5, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 1.6, hold: .4, say: "Опустите таз" }, { pose: "bridge", dur: 1.6, hold: 1.5, say: "Таз вверх, давите пятками" }], end: { pose: "hook_lying", dur: 1.5 } },
@@ -136,6 +156,14 @@ export class HumanBody extends EventTarget {
     // a soft floor, shown when the body is on the floor
     const fl = this.floor = new THREE.Mesh(new THREE.CircleGeometry(1.5, 64), new THREE.MeshStandardMaterial({ color: 0xdfe4e8, roughness: .95, transparent: true, opacity: 0, depthWrite: false }));
     fl.rotation.x = -Math.PI / 2; fl.position.y = -.002; fl.renderOrder = -1; this.scene.add(fl);
+    // props: a plain chair (seat height set to this body's sitting pose at load) and a 20 kg box
+    const wood = new THREE.MeshStandardMaterial({ color: 0x9a7b5c, roughness: .7 }), ch = this.chairMesh = new THREE.Group();
+    const bx = (w, h, d, x, y, z, m = wood) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); ch.add(o); return o; };
+    this._seat = bx(.44, .035, .42, 0, 0, 0); for (const [x, z] of [[-.19, -.18], [.19, -.18], [-.19, .18], [.19, .18]]) bx(.03, 1, .03, x, 0, z).userData.leg = true;
+    bx(.44, .3, .025, 0, 0, -.2).userData.back = true; ch.visible = false; this.scene.add(ch);
+    const card = new THREE.MeshStandardMaterial({ color: 0xc49a62, roughness: .85 }), tape = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: .6 });
+    const bo = this.boxMesh = new THREE.Group(); const b1 = new THREE.Mesh(new THREE.BoxGeometry(.4, .3, .3), card); bo.add(b1);
+    const t1 = new THREE.Mesh(new THREE.BoxGeometry(.402, .302, .06), tape); bo.add(t1); bo.visible = false; this.scene.add(bo);
     this.camera = new THREE.PerspectiveCamera(32, 1, .01, 50); this.camera.position.set(0, 1.1, 4.2);
     this.controls = new OrbitControls(this.camera, R.domElement); this.controls.target.set(0, .95, 0); this.controls.enableDamping = true;
     this.controls.minDistance = .15; this.controls.maxDistance = 12;
@@ -189,6 +217,7 @@ export class HumanBody extends EventTarget {
     // bones -> muscles -> skin
     this.drive = new MuscleDrive(this); this.root.updateMatrixWorld(true);
     try { this.driveStats = this.drive.setup(); } catch (e) { console.warn("muscle drive off:", e); this.drive = null; }
+    try { this._calibrateProps(); } catch (e) { console.warn("props:", e); }
     this._tuckShoes();
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
@@ -287,12 +316,21 @@ export class HumanBody extends EventTarget {
     const sag = Math.atan2(up.dot(front), Math.max(1e-6, up.y)) * 180 / Math.PI, lat = Math.abs(Math.atan2(up.dot(right), Math.max(1e-6, up.y)) * 180 / Math.PI);  // forward(+)/back, sideways
     const lying = this.lying || 0, side = Math.abs(this.pose.bodyRoll) > 45;
     const flexDeg = Math.max(0, sag), extDeg = Math.max(Math.max(0, -sag), Math.max(0, -L.flex));
-    const stand = .5 + .6 * Math.sin(Math.min(90, flexDeg) * D2R) + .1 * Math.min(1, extDeg / 25) + .1 * Math.min(1, Math.max(Math.abs(L.side), lat) / 25) + .2 * Math.min(1, Math.abs(L.twist) / 15);
+    const P = this.pose, seat = Math.min(1, Math.max(0, P.seated)), kg = P.load >= 19 ? P.load : 0;      // weight counts only once the box is in the hands
+    let stand = .5 + .6 * Math.sin(Math.min(90, flexDeg) * D2R) + .1 * Math.min(1, extDeg / 25) + .1 * Math.min(1, Math.max(Math.abs(L.side), lat) / 25) + .2 * Math.min(1, Math.abs(L.twist) / 15);
+    // sitting (Wilke 2001): unsupported 0.46, actively straightened 0.55, flexed 0.9 MPa; leaning the trunk forward from the hips adds as when standing
+    const sit = (L.flex >= 0 ? .46 + .44 * Math.min(1, L.flex / 15) : .46 + .09 * Math.min(1, -L.flex / 3)) + .6 * Math.sin(Math.min(90, Math.max(0, flexDeg - Math.max(0, L.flex))) * D2R) * .6;
+    stand = stand * (1 - seat) + sit * seat;
+    // a load in the hands (Wilke 2001, 20 kg): close to the body 1.1, flexed knees 1.7, round flexed back 2.3 MPa; scaled by mass
+    stand += kg / 20 * (.6 + .6 * Math.sin(Math.min(90, flexDeg) * D2R) ** 2);
     const lie = side ? .12 : .10, mpa = stand * (1 - lying) + lie * lying;
-    const measured = (lying > .95 && Math.abs(this.pose.spineFlex) < 5 && Math.abs(this.pose.legLForward) < 5 && this.pose.kneeL < 10) ? (side ? "лёжа на боку" : "лёжа")
+    const near20 = Math.abs(kg - 20) < 1, sitM = seat > .95 && lying < .05 && flexDeg - Math.max(0, L.flex) < 8;
+    const measured = near20 && lying < .05 && seat < .05 ? (P.kneeL < 30 && flexDeg > 65 ? "подъём 20 кг с круглой спиной" : P.kneeL > 70 && flexDeg > 25 && flexDeg < 60 && L.flex < 10 ? "подъём 20 кг с согнутыми коленями" : flexDeg < 10 ? "20 кг у тела" : null)
+      : kg > 1 ? null : sitM ? (Math.abs(L.flex) < 4 ? "сидя" : L.flex < -3 ? "сидя, спина активно выпрямлена" : L.flex > 14 ? "сидя, спина согнута" : null)
+      : seat > .05 ? null : (lying > .95 && Math.abs(this.pose.spineFlex) < 5 && Math.abs(this.pose.legLForward) < 5 && this.pose.kneeL < 10) ? (side ? "лёжа на боку" : "лёжа")
       : (lying < .05 && incl < 6 && Math.abs(L.side) < 4 && Math.abs(L.twist) < 4) ? "стоя" : (lying < .05 && flexDeg > 60 && lat < 10) ? "наклон вперёд стоя" : null;
     return { mpa: Math.round(mpa * 100) / 100, pctOfStanding: Math.round(mpa / .5 * 100), trunkIncline: Math.round(incl), basis: measured ? "измерено: " + measured : "оценка между измеренными позами",
-      source: "Wilke et al. 1999, Spine 24(8):755–762 (один испытуемый, диск L4–L5)" };
+      source: "Wilke et al. 1999, Spine 24(8):755–762; Wilke et al. 2001, Clin Biomech 16 Suppl 1:111–126 (один испытуемый, диск L4–L5)", load: kg, seated: seat > .5 };
   }
   // colour the spine on the model: amber = flexion, teal = extension, violet = bending to the side or twisting; the L4-L5 disc by its load
   showSpine(on = true) {
@@ -320,6 +358,30 @@ export class HumanBody extends EventTarget {
       const R = S.regions[m.userData.spineRegion], f = Math.abs(R.flex) / 30, o = Math.max(Math.abs(R.side) / 20, Math.abs(R.twist) / 25), k = Math.min(1, Math.max(f, o));
       if (k < .08) { m.material.emissive.setRGB(0, 0, 0); m.material.color.copy(base); continue; }
       c.copy(o > f ? violet : R.flex > 0 ? amber : teal); m.material.color.copy(base).lerp(c, .35 + .55 * k); m.material.emissive.copy(c).multiplyScalar(.45 * k);
+    }
+  }
+  /* ---------------- props: chair and box ---------------- */
+  // where the chair stands and where the box lies, from this body's own sitting and lifting poses
+  _calibrateProps() {
+    const save = { ...this.pose }, at = name => { Object.assign(this.pose, this._frameState(Object.fromEntries(POSE_KEYS.map(k => [k, 0])), { pose: name })); this._applyPose(); this.root.updateMatrixWorld(true); };
+    const W = () => this.bones.wristL.getWorldPosition(new THREE.Vector3()).add(this.bones.wristR.getWorldPosition(new THREE.Vector3())).multiplyScalar(.5);
+    at("sit_chair"); const pel = this.bones.root.getWorldPosition(new THREE.Vector3()), th = Math.min(this.bones.upperleg02L.getWorldPosition(new THREE.Vector3()).y, this.bones.upperleg02R.getWorldPosition(new THREE.Vector3()).y) - .07;
+    const top = Math.min(pel.y - .085, th), ch = this.chairMesh; ch.position.set(pel.x, 0, pel.z + .02);
+    for (const o of ch.children) { if (o.userData.leg) { o.scale.y = top - .035; o.position.y = (top - .035) / 2; } else if (o.userData.back) o.position.y = top + .17; else o.position.y = top - .0175; }
+    at("squat_lift"); const w = W(); this._boxFloor = new THREE.Vector3(w.x, .15, w.z);
+    Object.assign(this.pose, save); this._applyPose();
+  }
+  _props() {
+    const P = this.pose, ch = this.chairMesh, B = this.boxMesh;
+    ch.visible = P.chair > .5 || P.seated > .05;
+    if (!(P.box > .5 || P.load > .5)) { B.visible = false; this._boxSpot = null; return; }
+    B.visible = true;
+    if (P.load >= 19) {         // in the hands: between the wrists
+      const w = this.bones.wristL.getWorldPosition(new THREE.Vector3()).add(this.bones.wristR.getWorldPosition(new THREE.Vector3())).multiplyScalar(.5);
+      B.position.set(w.x, Math.max(.15, w.y - .02), w.z); this._boxSpot = B.position.clone();
+    } else {                    // put down or not yet taken: on the floor
+      if (!this._boxSpot) this._boxSpot = (this._boxFloor || new THREE.Vector3(0, .15, .35)).clone();
+      this._boxSpot.y = Math.max(.15, this._boxSpot.y > .3 ? .15 : this._boxSpot.y); B.position.copy(this._boxSpot);
     }
   }
   /* ---------------- motion: sequences, exercises, walking ---------------- */
@@ -642,7 +704,7 @@ export class HumanBody extends EventTarget {
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       this._applyPose();
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
-      this._paintSpine();
+      this._paintSpine(); this._props();
       this.floor.material.opacity = .8 * (this.lying || 0); this.floor.visible = this.lying > .01;
       const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); }
     }

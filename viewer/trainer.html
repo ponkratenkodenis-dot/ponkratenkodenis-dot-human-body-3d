@@ -149,7 +149,10 @@ $("ex").onchange = () => { showInfo($("ex").value); if (state !== "idle") start(
 $("voice").onclick = () => { unlocked = true; setVoice(!voiceOn); if (voiceOn) speak($("say").textContent || "Голос включён"); };
 $("layer").onclick = () => setLayer(!layerOn);
 // ?spine=1: colour the spine and show the estimated L4-L5 disc pressure (Wilke 1999)
-if (Q.get("spine") === "1") { $("disc").hidden = false; setInterval(() => { if (!body.root) return; const d = body.spineState().disc; $("disc").textContent = `диск L4–L5 ≈ ${d.pctOfStanding} % от стоя (${d.basis.startsWith("измерено") ? "измерено" : "оценка"})`; }, 300); }
+// lifting and sitting lessons always show the disc estimate; ?spine=1 shows it for everything
+setInterval(() => { const I = INFO[$("ex").value], on = Q.get("spine") === "1" || (I && I.disc); $("disc").hidden = !on; if (!on || !body.root) return;
+  const d = body.spineState().disc; $("disc").textContent = `диск L4–L5 ≈ ${d.mpa.toFixed(2).replace(".", ",")} МПа · ${d.pctOfStanding} % от стоя (${d.basis.startsWith("измерено") ? "измерено" : "оценка"})`; }, 250);
+if (false) { $("disc").hidden = false; setInterval(() => { if (!body.root) return; const d = body.spineState().disc; $("disc").textContent = `диск L4–L5 ≈ ${d.pctOfStanding} % от стоя (${d.basis.startsWith("измерено") ? "измерено" : "оценка"})`; }, 300); }
 
 body.addEventListener("motion", e => {
   const d = e.detail;

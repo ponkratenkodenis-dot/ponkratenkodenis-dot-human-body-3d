@@ -181,6 +181,7 @@ code,.mono{font-family:var(--f-mono)}
     <p class="goal" id="exGoal"></p>
     <ul id="exCues"></ul>
     <p class="mus" id="exMus"></p>
+    <div class="disc" id="exDisc" hidden><span class="hint">Давление в диске L4–L5</span><b id="exDiscVal"></b><span class="meter"><i id="exDiscBar"></i></span><span class="hint" id="exDiscBasis"></span></div>
     <div class="acts"><button class="chip" id="exShow">Показать работающие мышцы</button><button class="chip" id="exStop">Стоп</button></div>
     <p class="note" id="exNote"></p>
   </section>
@@ -295,6 +296,12 @@ body.addEventListener("motion-end", e => {
   $("exCard").hidden = true; exNow = null; body.clearHighlight(); body.setShift(0); if (exZoomed) { body.zoom(1 / .78); exZoomed = false; }
   if (window.parent !== window) window.parent.postMessage({ type: "body_event", event: "motion-end", detail: e.detail }, "*");
 });
+// lessons about sitting and lifting: the disc estimate under the caption
+setInterval(() => {
+  const I = exNow && INFO[exNow]; $("exDisc").hidden = !(I && I.disc) || $("exCard").hidden; if ($("exDisc").hidden || !body.root) return;
+  const d = body.spineState().disc; $("exDiscVal").textContent = `≈ ${d.mpa.toFixed(2).replace(".", ",")} МПа · ${d.pctOfStanding} % от стоя` + (d.load ? ` · груз ${Math.round(d.load)} кг` : "");
+  $("exDiscBar").style.width = Math.min(100, d.mpa / 2.4 * 100) + "%"; $("exDiscBasis").textContent = d.basis;
+}, 250);
 $("exShow").onclick = () => { if (!exNow) return; if (!body.layerOn.muscles) { body.peel("muscles_bones"); } body.highlightMany(INFO[exNow].muscles.map(m => m[0])); log({ op: "show_muscles", name: exNow }); };
 $("exStop").onclick = () => { body.stopMotion(); body.preset("stand"); log({ op: "stop" }); };
 
