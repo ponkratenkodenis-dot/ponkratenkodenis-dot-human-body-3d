@@ -28,6 +28,7 @@ export const COMMANDS = {
   view:      { desc: "Ракурс: front | back | left | right | top | three_quarter.", args: { angle: "string" } },
   zoom:      { desc: "Приблизить (>1) или отдалить (<1).", args: { factor: "number" } },
   scale:     { desc: "Масштаб модели (1 = 1,75 м).", args: { value: "number" } },
+  shape:     { desc: "Телосложение. breast — размер груди от -1 (меньше) до 1 (больше), 0 — как у модели. Меняются кожа и спортивный топ.", args: { breast: "number" } },
   life:      { desc: "Дыхание и микродвижения вкл/выкл.", args: { on: "boolean" } },
   reset:     { desc: "Стойка, все слои по умолчанию, камера спереди.", args: {} },
   list:      { desc: "Справка: what = parts | vertebrae | presets | layers | commands; layer — фильтр для parts.", args: { what: "string", layer: "string?" } },
@@ -99,6 +100,7 @@ export class Commander {
       case "view": b.view(c.angle); return { ok: true };
       case "zoom": b.zoom(c.factor || 1.5); return { ok: true };
       case "scale": b.setScale(c.value || 1); return { ok: true };
+      case "shape": return { ok: true, shape: b.setShape(c) };
       case "life": b.live = !!c.on; return { ok: true };
       case "reset": b.stopMotion(); b.setPose({}, true); b.regionBend = null; b.clearHighlight(); b.peel("dressed"); b.setScale(1); b.resetView(); return { ok: true };
       case "list": {
@@ -136,6 +138,9 @@ export class Commander {
     else if (/встань(?! на (носк|цыпочк))|подними[\wа-яё]*сь|stand up/.test(t)) out.push({ op: "pose", preset: "stand" });
     if (/нагрузк[\wа-яё]* на (позвоночник|поясниц|диск)|давлени[\wа-яё]* в диск/.test(t)) out.push({ op: "spine", show: true });
     if (/(иди|идти|шагай|ходьб|пройдись|walk)/.test(t)) return [Object.assign({ cmd: { op: "walk", on: true } }, this.run({ op: "walk", on: true, speed: /быстр|fast/.test(t) ? 1.6 : /медлен|slow/.test(t) ? .6 : 1 }))];
+    if (/груд[\wа-яё]* (больше|крупнее|побольше)|увелич[\wа-яё]* груд/.test(t)) out.push({ op: "shape", breast: Math.min(1, this.b.shape.breast + .5) });
+    else if (/груд[\wа-яё]* (меньше|поменьше)|уменьш[\wа-яё]* груд/.test(t)) out.push({ op: "shape", breast: Math.max(-1, this.b.shape.breast - .5) });
+    else if (/груд[\wа-яё]* (как было|обычн|средн)/.test(t)) out.push({ op: "shape", breast: 0 });
     if (/сним[\wа-яё]* одежд|раздень|без одежд|undress/.test(t)) out.push({ op: "peel", to: "skin" });
     if (/одень|в одежд|dress/.test(t)) out.push({ op: "peel", to: "dressed" });
     if (/рентген|x-?ray|насквозь/.test(t)) out.push({ op: "peel", to: "xray" });

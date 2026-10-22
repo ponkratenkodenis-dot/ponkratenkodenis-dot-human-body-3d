@@ -199,7 +199,7 @@ export class HumanBody extends EventTarget {
     this.camera = new THREE.PerspectiveCamera(32, 1, .01, 50); this.camera.position.set(0, 1.1, 4.2);
     this.controls = new OrbitControls(this.camera, R.domElement); this.controls.target.set(0, .95, 0); this.controls.enableDamping = true;
     this.controls.minDistance = .15; this.controls.maxDistance = 12;
-    this.pose = Object.fromEntries(POSE_KEYS.map(k => [k, 0])); this.target = { ...this.pose }; this.target.breath = 1;
+    this.pose = Object.fromEntries(POSE_KEYS.map(k => [k, 0])); this.target = { ...this.pose }; this.target.breath = 1; this.shape = { breast: 0 }; this.shapeMeshes = [];
     this.live = true; this.parts = new Map(); this.layerMeshes = Object.fromEntries(LAYERS.map(l => [l, []]));
     this.layerOn = { clothes: true, hair: true, skin: true, muscles: false, organs: false, skeleton: false }; this.depth = "dressed";
     this.opacity = { skin: 1, muscles: 1, organs: 1, skeleton: 1, clothes: 1, hair: 1 };
@@ -251,6 +251,7 @@ export class HumanBody extends EventTarget {
     try { this.driveStats = this.drive.setup(); } catch (e) { console.warn("muscle drive off:", e); this.drive = null; }
     try { this._calibrateProps(); } catch (e) { console.warn("props:", e); }
     this._tuckShoes();
+    try { await this._loadShape(); } catch (e) { console.warn("body shape off:", e); }
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
   }
@@ -768,8 +769,44 @@ export class HumanBody extends EventTarget {
     return { ok: true, skinning: this.skinMode };
   }
   muscleReport(n) { return this.drive ? this.drive.report(n).map(r => ({ ...r, ru: ruName(r.name) })) : []; }
+  // body shape. breast: -1 small … 0 the model … +1 large. MakeHuman's own 'cupsize' macro (0 / 0.5 / 1, CC0 targets),
+  // baked by tools/build_breast_morph.py into breast-morph.json and applied as two morph targets on the skin and the sports
+  // top (the top refitted by MakeHuman to each shape), so clothes, muscles below and skinning keep working
+  async _loadShape() {
+    const D = await (await fetch(this.opt.shapeUrl || new URL("./breast-morph.json", import.meta.url).href)).json();
+    const skin = this.layerMeshes.skin.find(m => m.name === "Body"), top = this.layerMeshes.clothes.find(m => /sportsuit/i.test(m.name + (m.userData.part || "")));
+    for (const [m, S] of [[skin, D.skin], [top, D.top]]) {
+      if (!m || !S) continue;
+      const g = m.geometry, p = g.attributes.position, n = p.count, C = .005, H = new Map(), key = (x, y, z) => `${x},${y},${z}`;
+      for (let j = 0; j < S.base.length / 3; j++) { const k = key(Math.floor(S.base[j * 3] / C), Math.floor(S.base[j * 3 + 1] / C), Math.floor(S.base[j * 3 + 2] / C)); (H.get(k) || H.set(k, []).get(k)).push(j); }
+      const toLocal = new THREE.Matrix3().setFromMatrix4(m.bindMatrixInverse), v = new THREE.Vector3(), d = new THREE.Vector3(), T = [new Float32Array(n * 3), new Float32Array(n * 3)];
+      let hit = 0;
+      for (let i = 0; i < n; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(m.bindMatrix); const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C);
+        let best = -1, bd = .002;                                   // the same vertex: within Draco quantisation
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (const j of H.get(key(cx + a, cy + b, cz + c)) || []) {
+          const e = Math.hypot(S.base[j * 3] - v.x, S.base[j * 3 + 1] - v.y, S.base[j * 3 + 2] - v.z); if (e < bd) { bd = e; best = j; } }
+        if (best < 0) continue; hit++;
+        ["small", "large"].forEach((t, q) => { d.fromArray(S[t], best * 3).applyMatrix3(toLocal); T[q].set([d.x, d.y, d.z], i * 3); });
+      }
+      // normals follow the new shape: the change of the computed normals (zero wherever the surface does not move)
+      const nrm = off => { const G = new THREE.BufferGeometry(), P = new Float32Array(p.array.length);
+        for (let i = 0; i < n * 3; i++) P[i] = p.getComponent(Math.floor(i / 3), i % 3) + (off ? off[i] : 0);
+        G.setAttribute("position", new THREE.BufferAttribute(P, 3)); if (g.index) G.setIndex(g.index); G.computeVertexNormals(); return G.attributes.normal.array; };
+      const N0 = nrm(null), DN = T.map(t => { const N1 = nrm(t), o = new Float32Array(n * 3); for (let i = 0; i < n * 3; i++) o[i] = N1[i] - N0[i]; return o; });
+      g.morphAttributes.position = T.map(t => new THREE.BufferAttribute(t, 3)); g.morphAttributes.normal = DN.map(t => new THREE.BufferAttribute(t, 3));
+      g.morphTargetsRelative = true; m.updateMorphTargets(); m.morphTargetInfluences.fill(0); m.userData.shapeHits = hit; this.shapeMeshes.push(m);
+      m.material.needsUpdate = true;
+    }
+    this.setShape(this.shape);
+  }
+  setShape(o = {}) {
+    if (o.breast != null && isFinite(+o.breast)) this.shape.breast = Math.max(-1, Math.min(1, +o.breast));
+    const b = this.shape.breast; for (const m of this.shapeMeshes) { m.morphTargetInfluences[0] = Math.max(0, -b); m.morphTargetInfluences[1] = Math.max(0, b); }
+    return { ...this.shape };
+  }
   snap() { for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }
-  state() { return { pose: Object.fromEntries(POSE_KEYS.map(k => [k, Math.round(this.target[k] * 10) / 10])), layers: { ...this.layerOn }, opacity: { ...this.opacity }, highlighted: [...this.hl.keys()].map(m => m.userData.part) }; }
+  state() { return { pose: Object.fromEntries(POSE_KEYS.map(k => [k, Math.round(this.target[k] * 10) / 10])), shape: { ...this.shape }, layers: { ...this.layerOn }, opacity: { ...this.opacity }, highlighted: [...this.hl.keys()].map(m => m.userData.part) }; }
   listParts(filter) { const out = []; for (const [n, m] of this.parts) if (!filter || m.userData.layerName === filter) out.push({ name: n, ru: ruName(n), layer: m.userData.layerName }); return out; }
 }
 export { VERTEBRAE, ruName };

@@ -130,6 +130,9 @@ code,.mono{font-family:var(--f-mono)}
           <button class="chip" data-peel="xray">Рентген</button>
           <button class="chip" data-peel="organs">Органы</button>
         </div></div>
+      <div class="group"><span class="label">Телосложение</span>
+        <div class="row"><label for="breast">Размер груди</label><output id="breastO">как у модели</output><input type="range" id="breast" min="-100" max="100" step="5" value="0"></div>
+        <p class="hint">От меньшего к большему в пределах параметра MakeHuman «размер груди». Вместе с кожей меняется спортивный топ.</p></div>
       <div class="group" id="layerRows"><span class="label">Слои и прозрачность</span></div>
       <p class="hint">Нажмите на любую часть тела, чтобы узнать, что это. Вращайте модель пальцем или мышью, колесом и щипком приближайте.</p>
     </section>
@@ -255,6 +258,10 @@ for (const [k, name, lo, hi] of SL) {
   r.querySelector("input").oninput = e => { body.setPose({ [k]: +e.target.value }); $("o-" + k).textContent = e.target.value + "°"; };
 }
 function syncSliders() { for (const [k] of SL) { const v = Math.round(body.target[k]); $("s-" + k).value = v; $("o-" + k).textContent = v + "°"; } }
+const breastText = v => v === 0 ? "как у модели" : (v < 0 ? "меньше " : "больше ") + Math.abs(v) + " %";
+$("breast").oninput = e => { const v = +e.target.value; body.setShape({ breast: v / 100 }); $("breastO").textContent = breastText(v); };
+$("breast").onchange = e => log({ op: "shape", breast: +e.target.value / 100 });
+setInterval(() => { const v = Math.round(body.shape.breast * 100); if (document.activeElement !== $("breast") && +$("breast").value !== v) { $("breast").value = v; $("breastO").textContent = breastText(v); } }, 400);
 $("life").onchange = e => (body.live = e.target.checked);
 $("mDrive").onchange = e => body.muscles({ drive: e.target.checked });
 $("mDQ").onchange = e => body.skinning(e.target.checked ? "dqs" : "linear");
