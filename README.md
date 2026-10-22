@@ -48,6 +48,8 @@
   - **На полу:** лёжа на спине, на животе, на боку, с согнутыми коленями; сидя; стоя на коленях; на четвереньках. Всё тело поворачивается, на пол ложится то, что ниже всего (спина, таз, голова, колени, ладони, стопы), появляется пол, камера сама переходит на вид сбоку.
   - **Упражнения для поясницы на полу:** колени к груди, ягодичный мостик, «кошка — корова» на четвереньках, «птица-собака» (рука и противоположная нога). Комплекс `lower_back` идёт подряд около 2 минут: модель ложится, делает упражнения лёжа, садится, встаёт на колени, переходит на четвереньки и в конце встаёт.
   - Углы подобраны расчётом (`viewer/dev/floorfit.js`): на четвереньках колени и ладони касаются пола одновременно, спина горизонтальна; в мостике таз на 12 см выше плеч, стопы стоят на полу всей подошвой, бедро на одной линии с корпусом; в «колени к груди» кисти на голенях (19 мм).
+  - **Подписи к упражнениям** (`viewer/exercises-ru.js`). Пока идёт упражнение, на экране карточка: название, повтор («повтор 2 из 5»), что делать сейчас («Таз вверх, давите пятками», «Выдох — спина круглая»), цель, 2–3 подсказки по технике, работающие мышцы и предупреждение. Кнопка «Показать работающие мышцы» подсвечивает их на модели. На телефоне карточка короче, камера отодвигается, чтобы тело было видно целиком.
+  - Тексты — учебные, не назначение: в каждой карточке сказано остановиться при боли, а при болях в спине, травмах или беременности подбирать упражнения с врачом.
   - Стоя: приседания, наклоны, повороты корпуса, шея, «кошка — корова» стоя, подъёмы на носки, подъём рук, марш, кисти; разминка для поясницы стоя (`lower_back_standing`).
   - Ходьба по типичным углам шага: тазобедренный сустав (бедро +19° вперёд и −17° назад), колено (амортизация после касания, до 60° в переносе), голеностоп (носок вверх при касании пяткой, толчок носком). Руки идут навстречу ногам, корпус слегка поворачивается.
   - На полу всегда самая низкая точка стоп (пятка или подушечка), поэтому поднятая нога не тянет тело вверх. При касании пяткой пятка на полу, а другая нога стоит на подушечке.
@@ -79,6 +81,12 @@ frame.contentWindow.postMessage({ type: "body_command", id: 1, commands: [{ op: 
 addEventListener("message", e => { if (e.data.type === "body_result") console.log(e.data.results); });
 ```
 
+Во время упражнений страница во `<iframe>` сама сообщает о каждом шаге:
+```js
+addEventListener("message", e => { if (e.data.type === "body_event") console.log(e.data.event, e.data.detail); });
+// motion { name, exercise, rep, reps, say, step, steps, seconds }   и   motion-end { name }
+```
+
 ### Любая ИИ
 `Body.TOOL` — готовое описание инструмента `body_command` в формате JSON Schema (`name`, `description`, `input_schema`) для Claude, OpenAI и других моделей с tool calling.
 - ИИ отвечает массивом `commands`.
@@ -95,6 +103,8 @@ addEventListener("message", e => { if (e.data.type === "body_result") console.lo
 | `set` | точная поза в градусах: `spineFlex, spineSide, spineTwist, neckFlex, neckSide, neckTwist, hipFlex, armLRaise, armRRaise, armLForward, armRForward, elbowL, elbowR, kneeL, kneeR, hipLRaise, hipRRaise, wristLFlex, wristRFlex, ankleL, ankleR, toesL, toesR, forearmL, forearmR, legLForward, legRForward` (`legLForward` — бедро одной ноги вперёд, как в шаге); пальцы рук `thumbL, indexL, middleL, ringL, littleL` (и с `R`) — сгибание 0..1; `spreadL, spreadR` — развести пальцы 0..1 | `{"op":"set","forearmL":-110,"spreadL":1}` |
 | `exercise` | упражнение с повторами: `squats, forward_bend, side_bends, trunk_rotation, neck_mobility, cat_cow, calf_raises, arm_raises, march, hand_exercise, lower_back_standing`; на полу `knees_to_chest, bridge, cat_cow_floor, bird_dog, lower_back` (комплекс для поясницы); `reps`, `speed` | `{"op":"exercise","name":"lower_back"}` |
 | `animate` | своя последовательность кадров: `frames` = [{`pose`, `amount`, `set`, `face`, `hand`:{`gesture`,`side`}, `dur`, `hold`}], `loop`, `speed`; кадр меняет только то, что в нём указано | `{"op":"animate","frames":[{"pose":"arms_up","dur":1},{"face":"smile","dur":0.5}]}` |
+| `exercise_info` | справка по упражнению для ИИ: цель, мышцы (имена частей модели и по-русски), подсказки, осторожность | `{"op":"exercise_info","name":"bridge"}` |
+| `show_muscles` | подсветить мышцы, работающие в упражнении | `{"op":"show_muscles","name":"bird_dog"}` |
 | `walk` / `stop` | ходьба на месте (`on`, `speed` 0.2–2.5) / остановить движение | `{"op":"walk","speed":1.2}` |
 | `face` | выражение лица: `neutral, smile, laugh, surprise, sad, angry, blink, wink_left, wink_right, mouth_open`; `amount` 0..1. Точно через `set`: `jawOpen` (градусы), `smile` (−1..1), `brows` (−1..1), `blinkL`/`blinkR` (0..1), `lookX`/`lookY` (градусы, плюс — влево от модели / вверх) | `{"op":"face","expression":"surprise"}` |
 | `hand` | жест: `open, spread, relaxed, fist, point, thumbs_up, ok, peace, pinch, grip`; `side`: `left, right, both` | `{"op":"hand","gesture":"ok","side":"right"}` |

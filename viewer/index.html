@@ -62,6 +62,20 @@ textarea{width:100%;box-sizing:border-box;min-height:74px;resize:vertical;border
 .report b{font:500 .78rem var(--f-mono);font-variant-numeric:tabular-nums}
 .report .sh{color:var(--hl)} .report .st{color:var(--accent)}
 code,.mono{font-family:var(--f-mono)}
+/* exercise caption: what to do now, what works, how to do it well */
+.excard{position:absolute;z-index:3;left:calc(342px + 14px);bottom:calc(34px + env(safe-area-inset-bottom,0px));width:min(340px,calc(100% - 356px - 180px));min-width:250px;max-height:52vh;overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px 14px 10px;box-shadow:0 10px 30px -18px rgba(10,30,40,.5);display:flex;flex-direction:column;gap:7px}
+.excard h2{font:600 1.08rem/1.2 var(--f-display);margin:0}
+.excard .top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.excard .rep{font:500 .78rem var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.excard .say{font:700 1rem/1.3 var(--f-ui);color:var(--accent);min-height:1.3em}
+.excard .goal{margin:0;font-size:.86rem;color:var(--muted)}
+.excard ul{margin:0;padding-left:1.1em;font-size:.86rem}
+.excard .mus{font-size:.82rem;margin:0}
+.excard .mus b{font-weight:700}
+.excard .acts{display:flex;gap:6px;flex-wrap:wrap}
+.excard .note{font-size:.72rem;color:var(--muted);margin:0;border-top:1px solid var(--line);padding-top:6px}
+.excard .note .short{display:none}
 .card{position:absolute;z-index:3;top:max(14px,env(safe-area-inset-top,0px));right:max(14px,env(safe-area-inset-right,0px));max-width:min(340px,calc(100% - 28px));
   background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--hl);border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px -18px rgba(10,30,40,.5)}
 .card h2{margin:0 0 2px;font:600 1.15rem/1.2 var(--f-display);text-wrap:balance}
@@ -81,6 +95,9 @@ code,.mono{font-family:var(--f-mono)}
   .brand{padding:10px max(16px,env(safe-area-inset-left,0px)) 6px}
   .pane{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
   .viewbar{bottom:calc(47% + 10px)} .credits{display:none}
+  .excard{left:12px;right:12px;width:auto;min-width:0;top:max(12px,env(safe-area-inset-top,0px));bottom:auto;max-height:38vh;overflow:auto}
+  .excard ul,.excard .goal,.excard .mus,.excard .note .full{display:none}
+  .excard .note .short{display:inline}
   .card{max-width:calc(100% - 28px)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -146,6 +163,15 @@ code,.mono{font-family:var(--f-mono)}
       </div>
     </section>
   </aside>
+  <section class="excard" id="exCard" hidden aria-live="polite">
+    <div class="top"><h2 id="exName"></h2><span class="rep" id="exRep"></span></div>
+    <div class="say" id="exSay"></div>
+    <p class="goal" id="exGoal"></p>
+    <ul id="exCues"></ul>
+    <p class="mus" id="exMus"></p>
+    <div class="acts"><button class="chip" id="exShow">Показать работающие мышцы</button><button class="chip" id="exStop">Стоп</button></div>
+    <p class="note" id="exNote"></p>
+  </section>
   <div class="card" id="card" hidden><h2 id="cardName"></h2><p id="cardSub"></p><div class="acts"><button class="chip" id="cardFocus">Приблизить</button><button class="chip" id="cardClear">Снять выделение</button></div></div>
   <div class="viewbar"><button class="chip" data-view="front">Спереди</button><button class="chip" data-view="left">Сбоку</button><button class="chip" data-view="back">Сзади</button><button class="chip" id="reset">Сброс</button></div>
   <div class="credits">Тело: <a href="https://static.makehumancommunity.org/" target="_blank" rel="noopener">MakeHuman/MPFB2</a> (CC0) · Анатомия: <a href="https://github.com/Z-Anatomy/Models-of-human-anatomy" target="_blank" rel="noopener">Z-Anatomy</a> на основе BodyParts3D, CC BY-SA 4.0</div>
@@ -156,6 +182,7 @@ code,.mono{font-family:var(--f-mono)}
 <script type="module">
 import { HumanBody, LAYERS, PRESETS, GESTURES, EXPRESSIONS, EXERCISES } from "./body.js";
 import { Commander, TOOL, COMMANDS } from "./commands.js";
+import { INFO, NOTE } from "./exercises-ru.js";
 import { VERTEBRAE, ruName } from "./names-ru.js";
 const $ = id => document.getElementById(id);
 
@@ -218,6 +245,30 @@ $("mDrive").onchange = e => body.muscles({ drive: e.target.checked });
 $("mDQ").onchange = e => body.skinning(e.target.checked ? "dqs" : "linear");
 $("mSkin").onchange = e => body.muscles({ skin: e.target.checked });
 $("mTension").onchange = e => { body.muscles({ tension: e.target.checked }); if (e.target.checked && !body.layerOn.muscles) { body.peel("muscles"); markPeel("muscles"); } };
+/* exercise caption + events for an embedding page */
+let exNow = null, exZoomed = false;
+const exTitle = n => (EXERCISES[n] && EXERCISES[n].ru) || (n === "walk" ? "Ходьба на месте" : n);
+body.addEventListener("motion", e => {
+  const d = e.detail, key = INFO[d.exercise] ? d.exercise : INFO[d.name] ? d.name : null;
+  const phone = matchMedia("(max-width:760px)").matches, sh = phone ? -.16 : (body.lying || 0) > .5 ? .2 : .07; if (body.shiftY !== sh) body.setShift(sh);
+  if (phone && $("exCard").hidden) { body.zoom(.78); exZoomed = true; }        // phones: room for the whole body under the caption
+  $("exCard").hidden = false; $("exName").textContent = exTitle(d.exercise && EXERCISES[d.exercise] && !EXERCISES[d.exercise].hidden ? d.exercise : d.name);
+  $("exRep").textContent = d.reps ? `повтор ${d.rep} из ${d.reps}` : ""; $("exSay").textContent = d.say || "";
+  if (key !== exNow) {
+    exNow = key; const I = INFO[key];
+    $("exGoal").textContent = I ? I.goal : ""; $("exCues").innerHTML = I ? I.cues.map(c => `<li>${c}</li>`).join("") : "";
+    $("exMus").innerHTML = I ? "<b>Работают:</b> " + I.muscles.map(m => m[1]).join(", ") : ""; $("exShow").hidden = !I;
+    $("exNote").innerHTML = I ? `<span class="full">${I.caution ? I.caution + " " : ""}${NOTE}</span><span class="short">Учебная демонстрация, не назначение. При боли остановитесь.</span>` : "";
+  }
+  if (window.parent !== window) window.parent.postMessage({ type: "body_event", event: "motion", detail: d }, "*");
+});
+body.addEventListener("motion-end", e => {
+  $("exCard").hidden = true; exNow = null; body.clearHighlight(); body.setShift(0); if (exZoomed) { body.zoom(1 / .78); exZoomed = false; }
+  if (window.parent !== window) window.parent.postMessage({ type: "body_event", event: "motion-end", detail: e.detail }, "*");
+});
+$("exShow").onclick = () => { if (!exNow) return; if (!body.layerOn.muscles) { body.peel("muscles_bones"); } body.highlightMany(INFO[exNow].muscles.map(m => m[0])); log({ op: "show_muscles", name: exNow }); };
+$("exStop").onclick = () => { body.stopMotion(); body.preset("stand"); log({ op: "stop" }); };
+
 /* keep the panel in step with commands from the AI, phrases, embedding pages and exercises */
 setInterval(() => {
   markPeel(body.depth);

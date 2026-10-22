@@ -2,12 +2,15 @@
 // run(cmd) accepts one command, an array of commands, a JSON string, or a short Russian/English phrase.
 import { PRESETS, POSE_KEYS, LAYERS, GESTURES, FINGERS, EXPRESSIONS, EXERCISES } from "./body.js";
 import { VERTEBRAE } from "./names-ru.js";
+import { INFO, NOTE } from "./exercises-ru.js";
 
 export const COMMANDS = {
   pose:      { desc: "Готовая поза. preset: " + Object.keys(PRESETS).join(", ") + "; amount 0..1 (насколько сильно).", args: { preset: "string", amount: "number?" } },
   set:       { desc: "Точная поза. Ключи: " + POSE_KEYS.filter(k => k !== "breath").join(", ") + ". Градусы, кроме пальцев рук. Плюс у spineFlex = наклон вперёд, у spineSide = вправо, у spineTwist = влево; ankleL/R плюс = носок вниз; forearmL/R — поворот предплечья: плюс = ладонью вниз/назад (пронация), минус = ладонью вверх/вперёд (супинация), 0 = исходное положение, -120 = ладони вперёд при опущенных руках; spreadL/R 0..1 — развести пальцы; toesL/R плюс = пальцы стопы поджаты, минус = подняты; wristLFlex/wristRFlex плюс = кисть к ладони. Пальцы рук (thumbL, indexL, middleL, ringL, littleL и то же с R) — степень сгибания 0..1 (1 = в кулак).", args: { "<key>": "number" } },
   exercise:  { desc: "Показать упражнение с повторами: " + Object.entries(EXERCISES).filter(([, v]) => !v.hidden).map(([k, v]) => k + " (" + v.ru + ")").join(", ") + ". reps — сколько раз, speed — скорость (1 = обычно).", args: { name: "string", reps: "number?", speed: "number?" } },
   animate:   { desc: "Своя последовательность: frames — список кадров { pose?, amount?, set?, face?, hand?: {gesture, side}, dur (секунды перехода), hold (секунды удержания) }; loop — повторы; speed. Кадр меняет только то, что в нём указано.", args: { frames: "object[]", loop: "number?", speed: "number?" } },
+  exercise_info: { desc: "Справка по упражнению для объяснения пользователю: цель, работающие мышцы (имена частей модели и по-русски), подсказки по технике, осторожность.", args: { name: "string" } },
+  show_muscles: { desc: "Подсветить мышцы, которые работают в упражнении (и показать слой мышц).", args: { name: "string" } },
   walk:      { desc: "Ходьба на месте (как на дорожке): on true/false, speed 0.2..2.5.", args: { on: "boolean?", speed: "number?" } },
   stop:      { desc: "Остановить упражнение, анимацию или ходьбу.", args: {} },
   face:      { desc: "Выражение лица. expression: " + Object.keys(EXPRESSIONS).join(", ") + "; amount 0..1. Точно через set: jawOpen (градусы), smile (-1..1), brows (-1..1), blinkL/blinkR (0..1), lookX/lookY (градусы взгляда: плюс = влево от модели / вверх).", args: { expression: "string", amount: "number?" } },
@@ -51,7 +54,7 @@ export const TOOL = {
             show: {}, hide: { type: "array", items: { type: "string" } }, to: { type: "string" },
             layer: { type: "string" }, value: { type: "number" }, part: { type: "string" }, color: { type: "string" },
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
-            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, name: { type: "string", enum: Object.keys(EXERCISES).filter(k => !EXERCISES[k].hidden) }, reps: { type: "number" }, speed: { type: "number" }, loop: { type: "number" },
+            drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, name: { type: "string", enum: [...Object.keys(EXERCISES).filter(k => !EXERCISES[k].hidden), "walk"] }, reps: { type: "number" }, speed: { type: "number" }, loop: { type: "number" },
             frames: { type: "array", items: { type: "object" } }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
@@ -74,6 +77,8 @@ export class Commander {
       case "pose": b.preset(c.preset, c.amount == null ? 1 : c.amount); return { ok: true, pose: c.preset };
       case "exercise": return b.exercise(c.name, c.reps, c.speed || 1);
       case "animate": return b.animate(c.frames, { loop: c.loop || 1, speed: c.speed || 1 });
+      case "exercise_info": { const I = INFO[c.name]; return I ? { ok: true, name: c.name, ...I, muscles: I.muscles.map(([n, ru]) => ({ name: n, ru })), note: NOTE } : { ok: false, error: "unknown exercise " + c.name }; }
+      case "show_muscles": { const I = INFO[c.name]; if (!I) return { ok: false, error: "unknown exercise " + c.name }; if (!b.layerOn.muscles) b.peel("muscles"); return { ok: true, count: b.highlightMany(I.muscles.map(m => m[0])) }; }
       case "walk": return b.walk(c.on !== false, c.speed || 1);
       case "stop": return b.stopMotion();
       case "face": return { ok: true, set: b.expression(c.expression, c.amount == null ? 1 : c.amount) };

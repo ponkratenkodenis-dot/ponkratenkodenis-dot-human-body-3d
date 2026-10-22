@@ -84,30 +84,30 @@ export const PRESETS = {
 // program = several exercises one after another
 const ARMS_DOWN = { armLRaise: -38, armRRaise: -38, elbowL: -20, elbowR: -20 };
 export const EXERCISES = {
-  squats: { ru: "Приседания", loop: 5, frames: [{ pose: "stand", dur: 1.2 }, { pose: "squat", amount: .85, dur: 1.6, hold: .4 }], end: { pose: "stand", dur: 1.4 } },
-  forward_bend: { ru: "Наклон вперёд с растяжкой", loop: 2, frames: [{ pose: "stand", dur: 1.2, hold: .3 }, { pose: "forward_bend", dur: 2.6, hold: 2 }], end: { pose: "stand", dur: 2 } },
-  side_bends: { ru: "Наклоны в стороны", loop: 3, frames: [{ pose: "side_bend_left", dur: 1.8, hold: .6 }, { pose: "side_bend_right", dur: 2.4, hold: .6 }], end: { pose: "stand", dur: 1.5 } },
-  trunk_rotation: { ru: "Повороты корпуса", loop: 3, frames: [{ pose: "twist_left", dur: 1.8, hold: .5 }, { pose: "twist_right", dur: 2.4, hold: .5 }], end: { pose: "stand", dur: 1.5 } },
-  neck_mobility: { ru: "Мобильность шеи", loop: 2, frames: [{ set: { neckFlex: 35 }, dur: 1.6, hold: .6 }, { set: { neckFlex: -25 }, dur: 2, hold: .6 }, { set: { neckFlex: 0, neckTwist: 60 }, dur: 2, hold: .6 },
-    { set: { neckTwist: -60 }, dur: 2.6, hold: .6 }, { set: { neckTwist: 0, neckSide: 30 }, dur: 2, hold: .6 }, { set: { neckSide: -30 }, dur: 2.4, hold: .6 }], end: { pose: "stand", dur: 1.5 } },
-  cat_cow: { ru: "Кошка — корова (стоя)", loop: 4, frames: [{ pose: "cat", dur: 2, hold: .6 }, { pose: "cow", dur: 2.4, hold: .6 }], end: { pose: "stand", dur: 1.5 } },
-  calf_raises: { ru: "Подъёмы на носки", loop: 6, frames: [{ pose: "stand", dur: 1 }, { pose: "tiptoe", dur: 1, hold: .5 }], end: { pose: "stand", dur: 1 } },
-  arm_raises: { ru: "Подъём рук", loop: 4, frames: [{ pose: "anatomical", dur: 1.6, hold: .3 }, { pose: "arms_up", dur: 2, hold: .6 }], end: { pose: "stand", dur: 1.6 } },
-  march: { ru: "Марш с высоким подниманием колен", loop: 6, frames: [{ set: { ...ARMS_DOWN, legLForward: 25, kneeL: 90, legRForward: 0, kneeR: 0, armRForward: 35, armLForward: -20 }, dur: .7 },
-    { set: { ...ARMS_DOWN, legRForward: 25, kneeR: 90, legLForward: 0, kneeL: 0, armLForward: 35, armRForward: -20 }, dur: .7 }], end: { pose: "stand", dur: 1.2 } },
-  hand_exercise: { ru: "Кулак — разведённые пальцы", loop: 5, frames: [{ hand: { gesture: "fist" }, dur: .8, hold: .3 }, { hand: { gesture: "spread" }, dur: .8, hold: .3 }], end: { hand: { gesture: "relaxed" }, dur: .8 } },
+  squats: { ru: "Приседания", loop: 5, frames: [{ pose: "stand", dur: 1.2, say: "Вверх — выдох" }, { pose: "squat", amount: .85, dur: 1.6, hold: .4, say: "Вниз, таз назад — вдох" }], end: { pose: "stand", dur: 1.4 } },
+  forward_bend: { ru: "Наклон вперёд с растяжкой", loop: 2, frames: [{ pose: "stand", dur: 1.2, hold: .3, say: "Выпрямитесь" }, { pose: "forward_bend", dur: 2.6, hold: 2, say: "Наклон от тазобедренных, держите растяжку" }], end: { pose: "stand", dur: 2 } },
+  side_bends: { ru: "Наклоны в стороны", loop: 3, frames: [{ pose: "side_bend_left", dur: 1.8, hold: .6, say: "Наклон влево" }, { pose: "side_bend_right", dur: 2.4, hold: .6, say: "Наклон вправо" }], end: { pose: "stand", dur: 1.5 } },
+  trunk_rotation: { ru: "Повороты корпуса", loop: 3, frames: [{ pose: "twist_left", dur: 1.8, hold: .5, say: "Поворот влево" }, { pose: "twist_right", dur: 2.4, hold: .5, say: "Поворот вправо" }], end: { pose: "stand", dur: 1.5 } },
+  neck_mobility: { ru: "Мобильность шеи", loop: 2, frames: [{ set: { neckFlex: 35 }, dur: 1.6, hold: .6, say: "Подбородок к груди" }, { set: { neckFlex: -25 }, dur: 2, hold: .6, say: "Голову назад, без рывка" }, { set: { neckFlex: 0, neckTwist: 60 }, dur: 2, hold: .6, say: "Поворот влево" },
+    { set: { neckTwist: -60 }, dur: 2.6, hold: .6, say: "Поворот вправо" }, { set: { neckTwist: 0, neckSide: 30 }, dur: 2, hold: .6, say: "Ухо к правому плечу" }, { set: { neckSide: -30 }, dur: 2.4, hold: .6, say: "Ухо к левому плечу" }], end: { pose: "stand", dur: 1.5 } },
+  cat_cow: { ru: "Кошка — корова (стоя)", loop: 4, frames: [{ pose: "cat", dur: 2, hold: .6, say: "Выдох — спина круглая" }, { pose: "cow", dur: 2.4, hold: .6, say: "Вдох — мягкий прогиб" }], end: { pose: "stand", dur: 1.5 } },
+  calf_raises: { ru: "Подъёмы на носки", loop: 6, frames: [{ pose: "stand", dur: 1, say: "Медленно опуститесь" }, { pose: "tiptoe", dur: 1, hold: .5, say: "Вверх на носки" }], end: { pose: "stand", dur: 1 } },
+  arm_raises: { ru: "Подъём рук", loop: 4, frames: [{ pose: "anatomical", dur: 1.6, hold: .3, say: "Руки вниз — выдох" }, { pose: "arms_up", dur: 2, hold: .6, say: "Руки вверх — вдох" }], end: { pose: "stand", dur: 1.6 } },
+  march: { ru: "Марш с высоким подниманием колен", loop: 6, frames: [{ set: { ...ARMS_DOWN, legLForward: 25, kneeL: 90, legRForward: 0, kneeR: 0, armRForward: 35, armLForward: -20 }, dur: .7, say: "Левое колено вверх" },
+    { set: { ...ARMS_DOWN, legRForward: 25, kneeR: 90, legLForward: 0, kneeL: 0, armLForward: 35, armRForward: -20 }, dur: .7, say: "Правое колено вверх" }], end: { pose: "stand", dur: 1.2 } },
+  hand_exercise: { ru: "Кулак — разведённые пальцы", loop: 5, frames: [{ hand: { gesture: "fist" }, dur: .8, hold: .3, say: "Кулак" }, { hand: { gesture: "spread" }, dur: .8, hold: .3, say: "Пальцы врозь" }], end: { hand: { gesture: "relaxed" }, dur: .8 } },
   lower_back_standing: { ru: "Разминка для поясницы стоя", program: ["cat_cow", "side_bends", "trunk_rotation", "forward_bend"] },
   // on the floor
-  knees_to_chest: { ru: "Колени к груди (лёжа)", loop: 3, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 2 }, { pose: "knees_to_chest", dur: 2, hold: 2 }], end: { pose: "hook_lying", dur: 1.5 } },
-  bridge: { ru: "Ягодичный мостик", loop: 5, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 1.6, hold: .4 }, { pose: "bridge", dur: 1.6, hold: 1.5 }], end: { pose: "hook_lying", dur: 1.5 } },
-  cat_cow_floor: { ru: "Кошка — корова (на четвереньках)", loop: 4, start: "_kneel_down", frames: [{ pose: "cat_floor", dur: 2, hold: .6 }, { pose: "cow_floor", dur: 2.4, hold: .6 }], end: { pose: "all_fours", dur: 1.5 } },
-  bird_dog: { ru: "Птица-собака", loop: 3, start: "_kneel_down", frames: [{ pose: "all_fours", dur: 1.4 }, { pose: "bird_dog_right", dur: 1.6, hold: 1.5 }, { pose: "all_fours", dur: 1.4 }, { pose: "bird_dog_left", dur: 1.6, hold: 1.5 }], end: { pose: "all_fours", dur: 1.4 } },
+  knees_to_chest: { ru: "Колени к груди (лёжа)", loop: 3, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 2, say: "Отпустите колени" }, { pose: "knees_to_chest", dur: 2, hold: 2, say: "Колени к груди, мягко держите" }], end: { pose: "hook_lying", dur: 1.5 } },
+  bridge: { ru: "Ягодичный мостик", loop: 5, start: "_lie_down", frames: [{ pose: "hook_lying", dur: 1.6, hold: .4, say: "Опустите таз" }, { pose: "bridge", dur: 1.6, hold: 1.5, say: "Таз вверх, давите пятками" }], end: { pose: "hook_lying", dur: 1.5 } },
+  cat_cow_floor: { ru: "Кошка — корова (на четвереньках)", loop: 4, start: "_kneel_down", frames: [{ pose: "cat_floor", dur: 2, hold: .6, say: "Выдох — спина круглая" }, { pose: "cow_floor", dur: 2.4, hold: .6, say: "Вдох — мягкий прогиб" }], end: { pose: "all_fours", dur: 1.5 } },
+  bird_dog: { ru: "Птица-собака", loop: 3, start: "_kneel_down", frames: [{ pose: "all_fours", dur: 1.4, say: "Исходное положение" }, { pose: "bird_dog_right", dur: 1.6, hold: 1.5, say: "Правая рука и левая нога в длину" }, { pose: "all_fours", dur: 1.4, say: "Вернитесь" }, { pose: "bird_dog_left", dur: 1.6, hold: 1.5, say: "Левая рука и правая нога в длину" }], end: { pose: "all_fours", dur: 1.4 } },
   lower_back: { ru: "Комплекс для поясницы (на полу)", program: ["knees_to_chest", "bridge", "_to_all_fours", "cat_cow_floor", "bird_dog", "_stand_up"] },
   // transitions inside programs: roll to the side and come up on all fours; stand up
-  _kneel_down: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2 }, { pose: "all_fours", dur: 2 }] },
-  _lie_down: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2 }, { pose: "sit_floor", dur: 2.2 }, { pose: "hook_lying", dur: 2.2 }] },
-  _to_all_fours: { hidden: true, loop: 1, frames: [{ pose: "sit_floor", dur: 2.2, hold: .3 }, { pose: "kneel", dur: 2.2, hold: .3 }, { pose: "all_fours", dur: 2 }] },
-  _stand_up: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2 }, { pose: "stand", dur: 2.5 }] }
+  _kneel_down: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2, say: "Опуститесь на колени" }, { pose: "all_fours", dur: 2, say: "Руки на пол" }] },
+  _lie_down: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2, say: "Опуститесь на колени" }, { pose: "sit_floor", dur: 2.2, say: "Сядьте" }, { pose: "hook_lying", dur: 2.2, say: "Лягте на спину, колени согнуты" }] },
+  _to_all_fours: { hidden: true, loop: 1, frames: [{ pose: "sit_floor", dur: 2.2, hold: .3, say: "Сядьте" }, { pose: "kneel", dur: 2.2, hold: .3, say: "Встаньте на колени" }, { pose: "all_fours", dur: 2, say: "На четвереньки" }] },
+  _stand_up: { hidden: true, loop: 1, frames: [{ pose: "kneel", dur: 2, say: "На колени" }, { pose: "stand", dur: 2.5, say: "Встаньте" }] }
 };
 const bump = (p, c, w) => { let d = Math.abs(p - c); d = Math.min(d, 1 - d); return Math.exp(-((d / w) ** 2)); };
 // one leg over a gait cycle (phase 0 = heel strike), degrees; from typical sagittal gait curves
@@ -149,7 +149,11 @@ export class HumanBody extends EventTarget {
     R.domElement.addEventListener("pointerup", e => { if (this._down && Math.hypot(e.clientX - this._down[0], e.clientY - this._down[1]) < 5) this.pickAt(e.clientX, e.clientY); });
     R.setAnimationLoop(() => this.frame());
   }
-  resize() { const w = this.el.clientWidth || 1, h = this.el.clientHeight || 1; this.renderer.setSize(w, h, false); this.renderer.domElement.style.width = "100%"; this.renderer.domElement.style.height = "100%"; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
+  resize() { const w = this.el.clientWidth || 1, h = this.el.clientHeight || 1; this.renderer.setSize(w, h, false); this.renderer.domElement.style.width = "100%"; this.renderer.domElement.style.height = "100%"; this.camera.aspect = w / h;
+    if (this.shiftY) this.camera.setViewOffset(w, h, 0, h * this.shiftY, w, h); else this.camera.clearViewOffset();
+    this.camera.updateProjectionMatrix(); }
+  // move the picture up (+) or down (-) by a share of the height, e.g. to keep the body clear of a caption
+  setShift(f) { this.shiftY = f || 0; this.resize(); }
 
   async load(onProgress) {
     const L = new GLTFLoader(), dr = new DRACOLoader(); dr.setDecoderPath(this.opt.draco); if (this.opt.dracoType) dr.setDecoderConfig({ type: this.opt.dracoType }); L.setDRACOLoader(dr);
@@ -270,31 +274,43 @@ export class HumanBody extends EventTarget {
   animate(frames, { loop = 1, speed = 1, end = null, name = "custom" } = {}) {
     if (!Array.isArray(frames) || !frames.length) throw new Error("frames: a non-empty list");
     this.walking = null; const segs = []; let st = { ...this.target };
-    const push = f => { const nx = this._frameState(st, f); segs.push({ a: st, b: nx, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0) }); st = nx; };
-    for (let r = 0; r < Math.max(1, Math.min(50, loop)); r++) frames.forEach(push);
-    if (end) push(end);
-    this.anim = { segs, t: 0, speed: Math.max(.1, +speed || 1), total: segs.reduce((s, g) => s + g.dur + g.hold, 0), name };
+    const L = Math.max(1, Math.min(50, loop));
+    const push = (f, r) => { const nx = this._frameState(st, f); segs.push({ a: st, b: nx, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0),
+      say: f.say || "", ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; };
+    for (let r = 0; r < L; r++) frames.forEach(f => push(f, r));
+    if (end) push({ _rep: 0, ...end }, 0);
+    this.anim = { segs, t: 0, speed: Math.max(.1, +speed || 1), total: segs.reduce((s, g) => s + g.dur + g.hold, 0), name, i: -1 };
     return { ok: true, name, seconds: +(this.anim.total / this.anim.speed).toFixed(1) };
   }
   exercise(name, reps, speed = 1) {
     const E = EXERCISES[name]; if (!E) throw new Error("unknown exercise " + name);
-    const onFloor = (this.lying || 0) > .5, startFrames = n => { const X = EXERCISES[n]; return X.start && !onFloor ? EXERCISES[X.start].frames : []; };
-    if (E.program) {           // several exercises in a row: one long frame list (getting down only at the start)
-      const frames = [...startFrames(E.program[0])]; for (const n of E.program) { const X = EXERCISES[n]; for (let r = 0; r < X.loop; r++) frames.push(...X.frames); if (X.end) frames.push(X.end); }
-      return this.animate(frames, { loop: reps || 1, speed, end: { pose: "stand", dur: 1.5 }, name });
-    }
-    const pre = startFrames(name);
-    if (pre.length) { const frames = [...pre]; for (let r = 0; r < (reps || E.loop); r++) frames.push(...E.frames); return this.animate(frames, { loop: 1, speed, end: E.end, name }); }
-    return this.animate(E.frames, { loop: reps || E.loop, speed, end: E.end, name });
+    // every frame is tagged with its exercise and repetition, for the caption and the "motion" events
+    const onFloor = (this.lying || 0) > .5, tag = (fs, ex, rep, n) => fs.map(f => ({ ...f, _ex: ex, _rep: rep, _reps: n }));
+    const startFrames = n => { const X = EXERCISES[n]; return X.start && !onFloor ? tag(EXERCISES[X.start].frames, n, 0, 0) : []; };
+    const one = (n, k) => { const X = EXERCISES[n], out = []; for (let r = 0; r < k; r++) out.push(...tag(X.frames, X.hidden ? name : n, X.hidden ? 0 : r + 1, X.hidden ? 0 : k)); if (X.end) out.push(...tag([X.end], X.hidden ? name : n, 0, 0)); return out; };
+    const frames = [];
+    if (E.program) { for (let r = 0; r < (reps || 1); r++) { frames.push(...startFrames(E.program[0])); for (const n of E.program) frames.push(...one(n, EXERCISES[n].loop)); } }
+    else frames.push(...startFrames(name), ...one(name, reps || E.loop));
+    return this.animate(frames, { loop: 1, speed, end: E.program ? { pose: "stand", dur: 1.5, say: "Встаньте", _ex: name, _rep: 0, _reps: 0 } : null, name });
   }
   // walking in place (as on a treadmill): legs follow typical gait angles, arms swing against the legs
-  walk(on = true, speed = 1) { this.anim = null; this.walking = on ? { phase: 0, speed: Math.max(.2, Math.min(2.5, +speed || 1)) } : null; if (!on) this.preset("stand"); return { ok: true, walking: !!on }; }
-  stopMotion() { const was = !!(this.anim || this.walking); this.anim = null; this.walking = null; return { ok: true, stopped: was }; }
+  walk(on = true, speed = 1) {
+    this.anim = null; this.walking = on ? { phase: 0, speed: Math.max(.2, Math.min(2.5, +speed || 1)) } : null; if (!on) this.preset("stand");
+    this.dispatchEvent(new CustomEvent(on ? "motion" : "motion-end", { detail: { name: "walk", exercise: "walk", rep: 0, reps: 0, say: on ? "Ходьба на месте" : "" } })); return { ok: true, walking: !!on };
+  }
+  stopMotion() { const was = !!(this.anim || this.walking), name = this.anim ? this.anim.name : this.walking ? "walk" : null; this.anim = null; this.walking = null; if (was) this.dispatchEvent(new CustomEvent("motion-end", { detail: { name, stopped: true } })); return { ok: true, stopped: was }; }
+  // highlight several parts by exact name (both sides when the name has no .l/.r)
+  highlightMany(names, color = "#ffb000") {
+    this.clearHighlight(); let n = 0;
+    for (const base of names) for (const nm of [base, base + ".l", base + ".r"]) if (this.parts.has(nm)) { this.highlight(nm, color, false); n++; }
+    return n;
+  }
   _motion(dt) {
     if (this.anim) {
       const A = this.anim; A.t += dt * A.speed; let t = A.t, i = 0;
       while (i < A.segs.length && t > A.segs[i].dur + A.segs[i].hold) { t -= A.segs[i].dur + A.segs[i].hold; i++; }
       const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
+      if (i !== A.i && i < A.segs.length) { A.i = i; this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
       for (const k of POSE_KEYS) if (k !== "breath") { const v = g.a[k] + (g.b[k] - g.a[k]) * e; this.pose[k] = this.target[k] = v; }
       if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
     }
