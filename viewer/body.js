@@ -9,6 +9,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
+import { Jiggle } from "./jiggle.js";
 
 const D2R = Math.PI / 180;
 export const LAYERS = ["clothes", "hair", "skin", "muscles", "organs", "skeleton"];
@@ -237,8 +238,10 @@ export class HumanBody extends EventTarget {
       if (o.isBone) { o.userData.rest = o.quaternion.clone(); }
       if (!o.isMesh) return;
       const ex = o.userData || {}, name = ex.name_orig || o.name, layer = o.name === "Body" ? "skin" : ex.layer === "clothes" || /^Clothes/.test(o.name) ? "clothes"
-        : o.name === "Hair" ? "hair" : ex.layer === "skeleton" ? "skeleton" : ex.layer === "muscles" ? "muscles" : ex.layer === "organs" ? "organs" : "skin";
+        : o.name === "Hair" || ex.layer === "hair" || /^Hair/.test(o.name) ? "hair" : ex.layer === "skeleton" ? "skeleton" : ex.layer === "muscles" ? "muscles" : ex.layer === "organs" ? "organs" : "skin";
       o.userData.part = name; o.userData.layerName = layer; o.frustumCulled = false;
+      // hair cards, brows, lashes: textures with alpha (glTF BLEND). Layers set transparency for fading, so cut by alpha instead
+      if (o.material && o.material.map && o.material.transparent && !o.material.alphaTest) { o.material.alphaTest = .45; o.material.side = THREE.DoubleSide; }
       this.layerMeshes[layer].push(o); this.parts.set(name, o);
       if (layer === "skin" && o.name === "Body") this._skinMaterial(o);
       else if (layer === "skeleton") { o.material = this._mat(o.material, { roughness: .62 }); if (/ligament/i.test(name)) o.userData.alphaK = .45; }   /* ligaments: see the vertebrae through them */
@@ -259,6 +262,7 @@ export class HumanBody extends EventTarget {
     try { this.driveStats = this.drive.setup(); } catch (e) { console.warn("muscle drive off:", e); this.drive = null; }
     try { this._calibrateProps(); } catch (e) { console.warn("props:", e); }
     this._tuckShoes();
+    if (this.opt.jiggle) { this.jiggle = new Jiggle(this, Array.isArray(this.opt.jiggle) ? this.opt.jiggle : undefined); if (!this.jiggle.count) this.jiggle = null; }
     try { await this._loadShape(); } catch (e) { console.warn("body shape off:", e); }
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
@@ -640,6 +644,9 @@ export class HumanBody extends EventTarget {
     return ms.map(m => this.info(m));
   }
   clearHighlight() { for (const [m] of this.hl) m.material = m.userData.baseMat; this.hl.clear(); this.applyLayers(); }
+  // hairstyle on models that carry several (the dealer: "ponytail" = Hair, "long" = Hair_Long)
+  setHair(style) { const map = { ponytail: "Hair", long: "Hair_Long" }, want = map[style] || style, hs = this.layerMeshes.hair; if (!hs.some(m => m.name === want)) return { ok: false, error: "no hairstyle " + style, styles: Object.keys(map).filter(k => hs.some(m => m.name === map[k])) };
+    for (const m of hs) m.userData.hidden = m.name !== want; this.applyLayers(); return { ok: true, hair: style }; }
   hide(q, on = true) { const ms = this.find(q); ms.forEach(m => (m.userData.hidden = on)); this.applyLayers(); return ms.length; }
   partBox(ms) { const b = new THREE.Box3(); for (const m of ms) { m.updateMatrixWorld(true); const bb = new THREE.Box3(); m.geometry.computeBoundingBox(); const g = m.geometry.boundingBox.clone(); bb.copy(g).applyMatrix4(m.matrixWorld); b.union(this._skinnedBox(m) || bb); } return b; }
   _skinnedBox(m) {
@@ -770,7 +777,8 @@ export class HumanBody extends EventTarget {
       for (const [b, r] of this._contacts) lo = Math.min(lo, b.getWorldPosition(v).y - r);
       const pel = this.bones.root.getWorldPosition(new THREE.Vector3());
       this.root.position.set((rest.x - f.x) * (1 - lying) - pel.x * lying, dy * (1 - lying) - lo * lying, (rest.z - f.z) * (1 - lying) - pel.z * lying);
-    } else this.root.position.set(rest.x - f.x, dy, rest.z - f.z);
+    } else if (this.walking) this.root.position.set(0, dy, 0);   // walking in place is on a treadmill: the stance foot slides back, the body stays
+    else this.root.position.set(rest.x - f.x, dy, rest.z - f.z);
     this.lying = lying;
   }
   // face: the jaw turns about the jaw joint; eyelids turn about the eye centre; mouth corners and brows are moved
@@ -797,6 +805,7 @@ export class HumanBody extends EventTarget {
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       this._applyPose();
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
+      if (this.jiggle) { if (!this.drive) this.root.updateMatrixWorld(true); this.jiggle.update(raw); }
       this._paintSpine(); this._props();
       this.floor.material.opacity = .8 * (this.lying || 0); this.floor.visible = this.lying > .01;
       const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); this._refitAt = this.t + 2.2; }
@@ -826,6 +835,7 @@ export class HumanBody extends EventTarget {
   // hair) refitted by MakeHuman. The offsets become morph targets (two per macro), applied before skinning, so poses,
   // muscles under the skin and clothes keep working
   async _loadShape() {
+    if (this.opt.shapeUrl === false) return;                 // a model built with another shape (the dealer): no slider data for it
     const D = await (await fetch(this.opt.shapeUrl || new URL("./shape-morph.json", import.meta.url).href)).json(), U = D.unit;
     const i16 = b => { const s = atob(b), a = new Int16Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = (s.charCodeAt(2 * i) | s.charCodeAt(2 * i + 1) << 8) << 16 >> 16; return a; };
     this.shapeMacros = D.macros;
@@ -911,7 +921,10 @@ export class HumanBody extends EventTarget {
     for (const m of this.shapeMeshes) this.shapeMacros.forEach((k, q) => { const b = this.shape[k] || 0; m.morphTargetInfluences[q * 2] = Math.max(0, -b); m.morphTargetInfluences[q * 2 + 1] = Math.max(0, b); });
     return { ...this.shape };
   }
-  snap() { for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }
+  // soft tissue on springs (models with jiggle bones, see jiggle.js): on/off and strength (1 = natural)
+  setJiggle({ on, gain } = {}) { if (!this.jiggle) return { ok: false, error: "this model has no jiggle bones" };
+    if (on != null) this.jiggle.on = !!on; if (gain != null && isFinite(+gain)) this.jiggle.gain = Math.max(0, Math.min(2, +gain)); return { ok: true, on: this.jiggle.on, gain: this.jiggle.gain }; }
+  snap() { if (this.jiggle) this.jiggle.reset(); for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }
   state() { return { pose: Object.fromEntries(POSE_KEYS.map(k => [k, Math.round(this.target[k] * 10) / 10])), shape: { ...this.shape }, layers: { ...this.layerOn }, opacity: { ...this.opacity }, highlighted: [...this.hl.keys()].map(m => m.userData.part) }; }
   listParts(filter) { const out = []; for (const [n, m] of this.parts) if (!filter || m.userData.layerName === filter) out.push({ name: n, ru: ruName(n), layer: m.userData.layerName }); return out; }
 }

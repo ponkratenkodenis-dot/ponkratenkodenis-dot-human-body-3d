@@ -28,6 +28,8 @@ export const COMMANDS = {
   view:      { desc: "Ракурс: front | back | left | right | top | three_quarter.", args: { angle: "string" } },
   zoom:      { desc: "Приблизить (>1) или отдалить (<1).", args: { factor: "number" } },
   scale:     { desc: "Масштаб модели (1 = 1,75 м).", args: { value: "number" } },
+  hair:      { desc: "Причёска у моделей с несколькими: ponytail (хвост) или long (длинные распущенные).", args: { style: "string" } },
+  jiggle:    { desc: "Мягкие ткани на пружинах (грудь, ягодицы), только у моделей с такими костями: on — вкл/выкл, gain — сила от 0 до 2 (1 = естественно).", args: { on: "boolean?", gain: "number?" } },
   shape:     { desc: "Телосложение, каждый параметр от -1 до 1, 0 — как у модели: weight — полнота (-1 худее, 1 полнее), muscle — мышечная масса, breast — размер груди. Можно передать один или несколько. Одежда, волосы и мышцы под кожей подстраиваются; кости не меняются. Возвращает массу тела по объёму модели и сколько из неё несёт диск L4–L5; давление в диске (spine_state) пересчитывается на эту массу.", args: { weight: "number?", muscle: "number?", breast: "number?" } },
   life:      { desc: "Дыхание и микродвижения вкл/выкл.", args: { on: "boolean" } },
   reset:     { desc: "Стойка, все слои по умолчанию, камера спереди.", args: {} },
@@ -59,6 +61,7 @@ export const TOOL = {
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
             drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, name: { type: "string", enum: [...Object.keys(EXERCISES).filter(k => !EXERCISES[k].hidden), "walk"] }, reps: { type: "number" }, speed: { type: "number" }, loop: { type: "number" },
             frames: { type: "array", items: { type: "object" } }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
+            weight: { type: "number" }, muscle: { type: "number" }, breast: { type: "number" }, style: { type: "string" }, gain: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
           required: ["op"]
@@ -78,7 +81,7 @@ export class Commander {
     const b = this.b, op = c.op;
     switch (op) {
       case "pose": b.preset(c.preset, c.amount == null ? 1 : c.amount); return { ok: true, pose: c.preset };
-      case "exercise": return b.exercise(c.name, c.reps, c.speed || 1);
+      case "exercise": return c.name === "walk" ? b.walk(true, c.speed || 1) : b.exercise(c.name, c.reps, c.speed || 1);
       case "animate": return b.animate(c.frames, { loop: c.loop || 1, speed: c.speed || 1 });
       case "exercise_info": { const I = INFO[c.name]; return I ? { ok: true, name: c.name, ...I, muscles: I.muscles.map(([n, ru]) => ({ name: n, ru })), note: NOTE } : { ok: false, error: "unknown exercise " + c.name }; }
       case "show_muscles": { const I = INFO[c.name]; if (!I) return { ok: false, error: "unknown exercise " + c.name }; if (!b.layerOn.muscles) b.peel("muscles"); return { ok: true, count: b.highlightMany(I.muscles.map(m => m[0])) }; }
@@ -100,6 +103,8 @@ export class Commander {
       case "view": b.view(c.angle); return { ok: true };
       case "zoom": b.zoom(c.factor || 1.5); return { ok: true };
       case "scale": b.setScale(c.value || 1); return { ok: true };
+      case "jiggle": return b.setJiggle(c);
+      case "hair": return b.setHair(c.style);
       case "shape": { const shape = b.setShape(c), M = b.massProps(); return { ok: true, shape, bodyKg: M && M.bodyKg, discCarriesKg: M && M.upperKg, discPressureFactor: M && Math.round(M.upperFactor * 100) / 100 }; }
       case "life": b.live = !!c.on; return { ok: true };
       case "reset": b.stopMotion(); b.setPose({}, true); b.regionBend = null; b.clearHighlight(); b.peel("dressed"); b.setScale(1); b.resetView(); return { ok: true };
@@ -131,6 +136,11 @@ export class Commander {
       : /подъ[её]м[\wа-яё]* на носк|икр/.test(t) ? "calf_raises" : /подъ[её]м[\wа-яё]* рук|маши руками/.test(t) ? "arm_raises" : /марш|колен[\wа-яё]* вверх|high knees/.test(t) ? "march"
       : /(упражн|разминк)[\wа-яё]* (для )?кист/.test(t) ? "hand_exercise" : null;
     if (ex) return [Object.assign({ cmd: { op: "exercise", name: ex, reps: reps ? +reps : undefined } }, this.run({ op: "exercise", name: ex, reps: reps ? +reps : undefined }))];
+    // moves of a character page (the dealer), when it has registered them
+    const MOVES = { dealer_greet: /помаш|поздоровайс|привет/, dealer_deal: /разда[йтв]/, dealer_dice: /(брось|бросить|бросай)[\wа-яё]* кост|кубик/, dealer_shuffle: /перемеша|тасу/,
+      dealer_point: /ваш ход|укажи на|передай ход/, dealer_win: /поздрав|выигр/ };
+    const mv = Object.keys(MOVES).find(k => EXERCISES[k] && MOVES[k].test(t));
+    if (mv) return [Object.assign({ cmd: { op: "exercise", name: mv } }, this.run({ op: "exercise", name: mv }))];
     if (/ляг на спин|лёжа на спин|лежа на спин/.test(t)) out.push({ op: "pose", preset: "lie_back" });
     else if (/ляг на живот|на живот/.test(t)) out.push({ op: "pose", preset: "lie_front" });
     else if (/ляг на бок|на боку/.test(t)) out.push({ op: "pose", preset: "lie_side" });
