@@ -117,6 +117,7 @@ const COURSE = [
   { id: "sitting", ex: "sitting_postures", title: "Как сидеть", text: "Сидя диск нагружен почти так же, как стоя, а согнувшись — почти вдвое больше. Главное — менять позу и вставать." },
   { id: "stand_up", ex: "sit_to_stand", title: "Как встать со стула", text: "Вставать ногами, а не рывком спины: корпус вперёд, стопы под коленями, толчок ногами." },
   { id: "lifting", ex: "lift_compare", title: "Как поднимать груз", text: "Сравните два подъёма 20 кг: с круглой спиной давление в поясничном диске около 2,3 МПа, в приседе — около 1,7, груз у тела — около 1,1." },
+  { id: "weight", ex: "weight_spine", title: "Вес и спина", text: "Диск L4–L5 несёт туловище, руки и голову. Та же модель полнее и стройнее: стоя разница небольшая, в наклоне — вдвое больше." },
   { id: "floor", ex: "lower_back", title: "Упражнения для поясницы", text: "Комплекс на полу: колени к груди, мостик, кошка — корова, птица-собака. Медленно и без боли." },
   { id: "standing", ex: "lower_back_standing", title: "Разминка стоя", text: "Если лечь негде: мягкая подвижность поясницы стоя во всех направлениях." }
 ];
@@ -124,6 +125,7 @@ let wasm = true; try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109
 const body = new HumanBody($("stage"), { url: window.BODY_MODEL_URL || "human.glb", draco: "draco/", dracoType: wasm ? "wasm" : "js",
   shape: Object.fromEntries(["breast", "weight", "muscle"].map(k => [k, +new URLSearchParams(location.search).get(k) || 0])) });   // ?breast=&weight=&muscle= from -1 to 1
 const cmd = new Commander(body); window.Body = { body, run: c => cmd.run(c) };
+const SHAPE0 = { ...body.shape };                        // the build from the address; a lesson that changes it gives it back
 
 // progress is a per-viewer convenience: it may be unavailable (private mode), the page works without it
 const done = new Set(); try { JSON.parse(localStorage.getItem("spine-course-done") || "[]").forEach(x => done.add(x)); } catch (e) {}
@@ -143,7 +145,7 @@ function select(i) {
   $("lTitle").textContent = (i + 1) + ". " + c.title; $("lText").textContent = c.text;
   $("lCues").innerHTML = (I.cues || []).map(x => `<li>${x}</li>`).join(""); $("lCaution").textContent = I.caution || ""; $("note").textContent = NOTE;
   $("next").hidden = i >= COURSE.length - 1; $("say").textContent = ""; $("spinetext").textContent = ""; $("bar").style.width = "0";
-  body.stopMotion(); body.showSpine(false); body.clearHighlight(); body.peel("skin"); body.preset("stand"); playing = false; $("play").textContent = "Смотреть";
+  body.stopMotion(); body.showSpine(false); body.clearHighlight(); body.peel("skin"); body.preset("stand"); body.setShape(SHAPE0); playing = false; $("play").textContent = "Смотреть";
   drawList(); history.replaceState(null, "", "?" + new URLSearchParams({ ...Object.fromEntries(Q), lesson: c.id }));
 }
 function play() { unlocked = true; const c = COURSE[cur]; body.stopMotion(); body.exercise(c.ex); playing = true; $("play").textContent = "Сначала"; }

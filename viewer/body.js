@@ -129,6 +129,14 @@ export const EXERCISES = {
   lift_right: { ru: "Подъём груза: правильно", loop: 2, frames: [{ pose: "stand", set: { box: 1 }, dur: 1.5, hold: .5, say: "Коробка 20 кг на полу" }, { pose: "squat_lift", dur: 2.4, hold: 1, say: "Колени согнуты, спина ровная, груз между ног — около 1,7 МПа" },
     { pose: "hold_close", dur: 2.2, hold: 1.5, say: "Груз у тела — около 1,1 МПа" }, { pose: "squat_lift", dur: 2.4, hold: .5, say: "Опускайте так же: присед, спина ровная" }], end: { pose: "stand", set: { box: 1 }, dur: 1.8, say: "Коробка на полу" } },
   lift_compare: { ru: "Подъём груза: сравнить", program: ["lift_wrong", "lift_right"] },
+  // body weight and the disc: the same model gets heavier and lighter (frames may carry "shape"); numbers from massProps
+  weight_spine: { ru: "Вес и спина", loop: 1, frames: [
+    { pose: "stand", peel: "skin", view: "left", shape: { breast: 0, weight: 0, muscle: 0 }, dur: 1.5, hold: 3, say: "Модель весит около 65 кг. Стоя давление в поясничном диске около 0,5 МПа" },
+    { shape: { weight: 1 }, dur: 3, hold: 3, say: "Полнее на 8 кг: давление стоя выросло примерно на 15 %" },
+    { shape: { weight: -1 }, dur: 3.5, hold: 3, say: "Стройнее на 6 кг: давление ниже примерно на 7 %" },
+    { pose: "forward_bend", shape: { weight: 0 }, dur: 2.5, hold: 2.5, say: "В наклоне вперёд вес туловища действует как груз на рычаге: около 1,1 МПа" },
+    { shape: { weight: 1 }, dur: 3, hold: 3.5, say: "Полнее в том же наклоне: давление выросло на 0,16 МПа — вдвое больше, чем стоя" },
+    { pose: "stand", shape: { weight: 0 }, dur: 2.5, hold: 3, say: "Меньше лишнего веса на туловище — меньше нагрузка на диски весь день" }] },
   // a tour of the spine: regions, discs, the most loaded levels (frames highlight parts)
   spine_tour: { ru: "Как устроен позвоночник", loop: 1, frames: [
     { pose: "posture_ideal", peel: "xray", view: "left", hl: "позвоночник", dur: 2, hold: 3.5, say: "Позвоночник: 24 подвижных позвонка, крестец и копчик. Сбоку видны четыре изгиба" },
@@ -472,12 +480,13 @@ export class HumanBody extends EventTarget {
   // play frames (see EXERCISES for the format); loop = how many times; speed > 1 faster
   animate(frames, { loop = 1, speed = 1, end = null, name = "custom" } = {}) {
     if (!Array.isArray(frames) || !frames.length) throw new Error("frames: a non-empty list");
-    this.walking = null; const segs = []; let st = { ...this.target };
+    this.walking = null; const segs = []; let st = { ...this.target }, sh = { ...this.shape };
     const L = Math.max(1, Math.min(50, loop));
-    const push = (f, r) => { const nx = this._frameState(st, f); segs.push({ a: st, b: nx, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0),
-      say: f.say || "", view: f.view || null, peel: f.peel || null, hl: f.hl, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; };
+    const push = (f, r) => { const nx = this._frameState(st, f), ns = f.shape ? { ...sh, ...f.shape } : sh; segs.push({ a: st, b: nx, sa: sh, sb: ns, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0),
+      say: f.say || "", view: f.view || null, peel: f.peel || null, hl: f.hl, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; sh = ns; };
     for (let r = 0; r < L; r++) frames.forEach(f => push(f, r));
     if (end) push({ _rep: 0, ...end }, 0);
+    if (segs.some(g => g.sa !== g.sb)) this._ensureInner();      // build the layers under the skin now, not halfway through
     this.anim = { segs, t: 0, speed: Math.max(.1, +speed || 1), total: segs.reduce((s, g) => s + g.dur + g.hold, 0), name, i: -1 };
     return { ok: true, name, seconds: +(this.anim.total / this.anim.speed).toFixed(1) };
   }
@@ -513,6 +522,7 @@ export class HumanBody extends EventTarget {
       const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
       if (i !== A.i && i < A.segs.length) { A.i = i; if (g.peel) this.peel(g.peel); if (g.hl !== undefined) { if (g.hl) this.highlight(g.hl); else this.clearHighlight(); } if (g.view) (typeof g.view === "string" ? this.view(g.view) : this.lookFrom(g.view)); this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
       for (const k of POSE_KEYS) if (k !== "breath") { const v = g.a[k] + (g.b[k] - g.a[k]) * e; this.pose[k] = this.target[k] = v; }
+      if (g.sa !== g.sb) this.setShape(Object.fromEntries(Object.keys(g.sb).map(k => [k, (g.sa[k] || 0) + ((g.sb[k] || 0) - (g.sa[k] || 0)) * e])));
       if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
     }
     if (this.walking) {
@@ -894,9 +904,10 @@ export class HumanBody extends EventTarget {
     }
     this.shapeInnerStats = { meshes, moved };
   }
+  _ensureInner() { if (this._shapeReady && !this._innerDone) { this._innerDone = true; try { this._shapeInner(); } catch (e) { console.warn("shape inner layers:", e); } } }
   setShape(o = {}) {
     for (const k of Object.keys(this.shape)) if (o[k] != null && isFinite(+o[k])) this.shape[k] = Math.max(-1, Math.min(1, +o[k]));
-    if (this._shapeReady && !this._innerDone && Object.values(this.shape).some(v => v)) { this._innerDone = true; try { this._shapeInner(); } catch (e) { console.warn("shape inner layers:", e); } }
+    if (Object.values(this.shape).some(v => v)) this._ensureInner();
     for (const m of this.shapeMeshes) this.shapeMacros.forEach((k, q) => { const b = this.shape[k] || 0; m.morphTargetInfluences[q * 2] = Math.max(0, -b); m.morphTargetInfluences[q * 2 + 1] = Math.max(0, b); });
     return { ...this.shape };
   }
