@@ -241,7 +241,8 @@ export class HumanBody extends EventTarget {
         : o.name === "Hair" || ex.layer === "hair" || /^Hair/.test(o.name) ? "hair" : ex.layer === "skeleton" ? "skeleton" : ex.layer === "muscles" ? "muscles" : ex.layer === "organs" ? "organs" : "skin";
       o.userData.part = name; o.userData.layerName = layer; o.frustumCulled = false;
       // hair cards, brows, lashes: textures with alpha (glTF BLEND). Layers set transparency for fading, so cut by alpha instead
-      if (o.material && o.material.map && o.material.transparent && !o.material.alphaTest) { o.material.alphaTest = .45; o.material.side = THREE.DoubleSide; }
+      // (with the canvas antialiased, alpha to coverage gives soft edges to brows, lashes and hair strands)
+      if (o.material && o.material.map && o.material.transparent && !o.material.alphaTest) { o.material.alphaTest = .15; o.material.alphaToCoverage = true; o.material.side = THREE.DoubleSide; }
       this.layerMeshes[layer].push(o); this.parts.set(name, o);
       if (layer === "skin" && o.name === "Body") this._skinMaterial(o);
       else if (layer === "skeleton") { o.material = this._mat(o.material, { roughness: .62 }); if (/ligament/i.test(name)) o.userData.alphaK = .45; }   /* ligaments: see the vertebrae through them */
@@ -487,7 +488,7 @@ export class HumanBody extends EventTarget {
     this.walking = null; const segs = []; let st = { ...this.target }, sh = { ...this.shape };
     const L = Math.max(1, Math.min(50, loop));
     const push = (f, r) => { const nx = this._frameState(st, f), ns = f.shape ? { ...sh, ...f.shape } : sh; segs.push({ a: st, b: nx, sa: sh, sb: ns, dur: Math.max(.05, f.dur == null ? 1 : +f.dur), hold: Math.max(0, +f.hold || 0),
-      say: f.say || "", view: f.view || null, peel: f.peel || null, hl: f.hl, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; sh = ns; };
+      say: f.say || "", fx: f.fx || null, view: f.view || null, peel: f.peel || null, hl: f.hl, ex: f._ex || name, rep: f._rep != null ? f._rep : r + 1, reps: f._reps != null ? f._reps : L }); st = nx; sh = ns; };
     for (let r = 0; r < L; r++) frames.forEach(f => push(f, r));
     if (end) push({ _rep: 0, ...end }, 0);
     if (segs.some(g => g.sa !== g.sb)) this._ensureInner();      // build the layers under the skin now, not halfway through
@@ -524,7 +525,7 @@ export class HumanBody extends EventTarget {
       const A = this.anim; if (!this.paused) A.t += dt * A.speed; let t = A.t, i = 0;
       while (i < A.segs.length && t > A.segs[i].dur + A.segs[i].hold) { t -= A.segs[i].dur + A.segs[i].hold; i++; }
       const g = A.segs[Math.min(i, A.segs.length - 1)], u = i >= A.segs.length ? 1 : Math.min(1, t / g.dur), e = u * u * (3 - 2 * u);
-      if (i !== A.i && i < A.segs.length) { A.i = i; if (g.peel) this.peel(g.peel); if (g.hl !== undefined) { if (g.hl) this.highlight(g.hl); else this.clearHighlight(); } if (g.view) (typeof g.view === "string" ? this.view(g.view) : this.lookFrom(g.view)); this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
+      if (i !== A.i && i < A.segs.length) { A.i = i; if (g.peel) this.peel(g.peel); if (g.hl !== undefined) { if (g.hl) this.highlight(g.hl); else this.clearHighlight(); } if (g.view) (typeof g.view === "string" ? this.view(g.view) : this.lookFrom(g.view)); this.dispatchEvent(new CustomEvent("motion", { detail: { name: A.name, exercise: g.ex, rep: g.rep, reps: g.reps, say: g.say, fx: g.fx, step: i + 1, steps: A.segs.length, seconds: +(A.total / A.speed).toFixed(1) } })); }
       for (const k of POSE_KEYS) if (k !== "breath") { const v = g.a[k] + (g.b[k] - g.a[k]) * e; this.pose[k] = this.target[k] = v; }
       if (g.sa !== g.sb) this.setShape(Object.fromEntries(Object.keys(g.sb).map(k => [k, (g.sa[k] || 0) + ((g.sb[k] || 0) - (g.sa[k] || 0)) * e])));
       if (A.t >= A.total) { this.anim = null; this.dispatchEvent(new CustomEvent("motion-end", { detail: { name: A.name } })); }
@@ -577,6 +578,7 @@ export class HumanBody extends EventTarget {
       sh.fragmentShader = "uniform float uHideCloth; uniform float uHideShoes;\n" + sh.fragmentShader.replace("#include <color_fragment>",
         "#ifdef USE_COLOR\n if (uHideCloth > .5 && vColor.r > .5) discard; if (uHideShoes > .5 && vColor.g > .5) discard;\n#endif");
     };
+    if (mesh.material && mesh.material.map) { m.map = mesh.material.map; m.color.set(0xf4ece8); }   // a model with a skin texture keeps it
     mesh.material = m; this.skinMat = m;
   }
 
@@ -786,16 +788,25 @@ export class HumanBody extends EventTarget {
   _face(P) {
     const sm = P.smile, up = Math.max(0, sm), dn = Math.max(0, -sm), bw = P.brows, bu = Math.max(0, bw), bd = Math.max(0, -bw);
     const t = this.t, auto = this.live ? Math.max(0, 1 - Math.abs(((t % 4.3) - 4.15) / .09)) : 0;      // a natural blink every ~4 s
-    this._rot("jaw", P.jawOpen, 0, 0);
+    // speaking: the jaw opens and closes at syllable rate while talk() runs (a page calls it with the speech)
+    const tk = this._talk && t < this._talk.until ? (.5 + .5 * Math.sin(t * 15.7)) * (.6 + .4 * Math.sin(t * 4.1 + 1)) * Math.min(1, (this._talk.until - t) * 4) : 0;
+    this._rot("jaw", P.jawOpen + tk * 9, 0, 0);
+    // eye contact: the eyes turn toward the camera (the viewer), within what eyes can turn without the head
+    let gx = 0, gy = 0;
+    if (this.gaze && this.bones.head) {
+      const h = this.bones.head.getWorldPosition(new THREE.Vector3()), v = this.camera.position.clone().sub(h).applyQuaternion(this.root.getWorldQuaternion(new THREE.Quaternion()).invert());
+      gx = THREE.MathUtils.clamp(Math.atan2(v.x, v.z) * 180 / Math.PI - P.neckTwist - P.spineTwist, -28, 28) * this.gaze;
+      gy = THREE.MathUtils.clamp(Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI + P.neckFlex + .5 * P.spineFlex, -18, 18) * this.gaze;
+    }
     for (const [S, sg] of [["L", 1], ["R", -1]]) {
-      const bl = Math.min(1, P["blink" + S] + auto);
+      const bl = Math.min(1, P["blink" + S] + auto - (this.eyeOpen || 0));            // eyeOpen: a more awake look (a character page sets it)
       this._rot("orbicularis03" + S, bl * 34, 0, 0); this._rot("orbicularis04" + S, -bl * 6 - up * 7, 0, 0);   // upper lid down; lower lid up (also in a real smile)
       for (const c of ["oris03" + S, "oris07" + S]) this._move(c, sg * (.009 * up + .002 * dn), .008 * up - .007 * dn, -.004 * up);
       this._move("risorius03" + S, sg * .006 * up, .006 * up - .003 * dn, -.002 * up);
       this._move("levator05" + S, sg * .002 * up, .004 * up, 0);
       this._move("oculi01" + S, -sg * .003 * bd, .005 * bu - .003 * bd, .001 * bu);                           // brows: up, or down and together
       this._move("oculi02" + S, 0, .004 * bu - .002 * bd, 0);
-      this._rot("eye" + S, -P.lookY, P.lookX, 0);
+      this._rot("eye" + S, -(P.lookY + gy), P.lookX + gx, 0);
     }
   }
   frame() {
@@ -921,6 +932,10 @@ export class HumanBody extends EventTarget {
     for (const m of this.shapeMeshes) this.shapeMacros.forEach((k, q) => { const b = this.shape[k] || 0; m.morphTargetInfluences[q * 2] = Math.max(0, -b); m.morphTargetInfluences[q * 2 + 1] = Math.max(0, b); });
     return { ...this.shape };
   }
+  // lips move for this many seconds (with speech, captions); 0 stops them
+  talk(seconds) { this._talk = seconds > 0 ? { until: this.t + seconds } : null; return { ok: true, seconds }; }
+  // eyes follow the camera: 0 off .. 1 fully
+  setGaze(v) { this.gaze = Math.max(0, Math.min(1, +v || 0)); return { ok: true, gaze: this.gaze }; }
   // soft tissue on springs (models with jiggle bones, see jiggle.js): on/off and strength (1 = natural)
   setJiggle({ on, gain } = {}) { if (!this.jiggle) return { ok: false, error: "this model has no jiggle bones" };
     if (on != null) this.jiggle.on = !!on; if (gain != null && isFinite(+gain)) this.jiggle.gain = Math.max(0, Math.min(2, +gain)); return { ok: true, on: this.jiggle.on, gain: this.jiggle.gain }; }

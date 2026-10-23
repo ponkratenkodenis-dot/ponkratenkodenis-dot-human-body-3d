@@ -29,6 +29,8 @@ export const COMMANDS = {
   zoom:      { desc: "Приблизить (>1) или отдалить (<1).", args: { factor: "number" } },
   scale:     { desc: "Масштаб модели (1 = 1,75 м).", args: { value: "number" } },
   hair:      { desc: "Причёска у моделей с несколькими: ponytail (хвост) или long (длинные распущенные).", args: { style: "string" } },
+  gaze:      { desc: "Взгляд в камеру (на зрителя): value от 0 (выкл) до 1.", args: { value: "number?" } },
+  talk:      { desc: "Губы двигаются, как при речи, seconds секунд (0 — замолчать). Для озвучки текста на странице персонажа есть op say.", args: { seconds: "number?" } },
   jiggle:    { desc: "Мягкие ткани на пружинах (грудь, ягодицы), только у моделей с такими костями: on — вкл/выкл, gain — сила от 0 до 2 (1 = естественно).", args: { on: "boolean?", gain: "number?" } },
   shape:     { desc: "Телосложение, каждый параметр от -1 до 1, 0 — как у модели: weight — полнота (-1 худее, 1 полнее), muscle — мышечная масса, breast — размер груди. Можно передать один или несколько. Одежда, волосы и мышцы под кожей подстраиваются; кости не меняются. Возвращает массу тела по объёму модели и сколько из неё несёт диск L4–L5; давление в диске (spine_state) пересчитывается на эту массу.", args: { weight: "number?", muscle: "number?", breast: "number?" } },
   life:      { desc: "Дыхание и микродвижения вкл/выкл.", args: { on: "boolean" } },
@@ -61,7 +63,7 @@ export const TOOL = {
             angle: { type: "string" }, factor: { type: "number" }, on: { type: "boolean" }, what: { type: "string" },
             drive: { type: "boolean" }, gesture: { type: "string", enum: Object.keys(GESTURES) }, expression: { type: "string", enum: Object.keys(EXPRESSIONS) }, name: { type: "string", enum: [...Object.keys(EXERCISES).filter(k => !EXERCISES[k].hidden), "walk"] }, reps: { type: "number" }, speed: { type: "number" }, loop: { type: "number" },
             frames: { type: "array", items: { type: "object" } }, side: { type: "string", enum: ["left", "right", "both"] }, mode: { type: "string", enum: ["dqs", "linear"] }, skin: { type: "boolean" }, tension: { type: "boolean" }, limit: { type: "number" },
-            weight: { type: "number" }, muscle: { type: "number" }, breast: { type: "number" }, style: { type: "string" }, gain: { type: "number" },
+            weight: { type: "number" }, muscle: { type: "number" }, seconds: { type: "number" }, text: { type: "string" }, values: { type: "array", items: { type: "integer" } }, accent: { type: "string" }, scene: { type: "string" }, count: { type: "integer" }, breast: { type: "number" }, style: { type: "string" }, gain: { type: "number" },
             ...Object.fromEntries(POSE_KEYS.filter(k => k !== "breath").map(k => [k, { type: "number" }]))
           },
           required: ["op"]
@@ -104,6 +106,8 @@ export class Commander {
       case "zoom": b.zoom(c.factor || 1.5); return { ok: true };
       case "scale": b.setScale(c.value || 1); return { ok: true };
       case "jiggle": return b.setJiggle(c);
+      case "gaze": return b.setGaze(c.value == null ? 1 : c.value);
+      case "talk": return b.talk(c.seconds == null ? 2 : +c.seconds);
       case "hair": return b.setHair(c.style);
       case "shape": { const shape = b.setShape(c), M = b.massProps(); return { ok: true, shape, bodyKg: M && M.bodyKg, discCarriesKg: M && M.upperKg, discPressureFactor: M && Math.round(M.upperFactor * 100) / 100 }; }
       case "life": b.live = !!c.on; return { ok: true };
@@ -121,7 +125,7 @@ export class Commander {
       case "muscles": return b.muscles(c);
       case "skinning": return b.skinning(c.mode);
       case "muscle_report": return { ok: true, items: b.muscleReport(c.limit || 12) };
-      default: return { ok: false, error: "unknown op " + op };
+      default: return this.extra && this.extra[op] ? this.extra[op](c) : { ok: false, error: "unknown op " + op };   // a character page adds its own ops in extra
     }
   }
   // tiny offline phrase parser for demos without an AI; a real assistant should send JSON via TOOL
