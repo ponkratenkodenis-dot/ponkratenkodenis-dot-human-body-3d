@@ -178,6 +178,7 @@ export class MuscleDrive {
     }
     g.setAttribute("aMi", new THREE.BufferAttribute(mi, 2)); g.setAttribute("aMw", new THREE.BufferAttribute(mw, 2));
     const mat = m.material, prev = mat.onBeforeCompile, self = this;
+    if (mat.userData.uMus) return;                         // a material shared by two meshes is hooked once
     mat.userData.uMus = { uMusTex: { value: this.tex }, uMusW: { value: this.texW }, uSkinOn: { value: 1 } };
     mat.onBeforeCompile = (sh, r) => {
       prev && prev.call(mat, sh, r);
