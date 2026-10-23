@@ -180,6 +180,18 @@ export function gaitLeg(p) {
   return { hip, knee, ankle };
 }
 
+// mouth shapes from text: per letter [open 0..1, rounded 0..1] (Russian and Latin letters); lips meet on m, b, p
+function visemes(text) {
+  const V = { а: [.95, 0], я: [.85, 0], о: [.7, .8], ё: [.7, .7], у: [.35, 1], ю: [.4, .9], э: [.7, 0], е: [.6, 0], ы: [.45, 0], и: [.4, 0],
+    a: [.95, 0], o: [.7, .8], u: [.35, 1], e: [.6, 0], i: [.4, 0], y: [.4, 0] };
+  const out = [];
+  for (const ch of String(text).toLowerCase()) {
+    if (V[ch]) out.push(V[ch]); else if (/[мбпmbp]/.test(ch)) out.push([0, 0]); else if (/[вфvfw]/.test(ch)) out.push([.12, .1]);
+    else if (/[шщжчsh]/.test(ch)) out.push([.2, .5]); else if (/[а-яёa-z]/.test(ch)) out.push([.25, 0]); else if (/[\s,.!?—-]/.test(ch)) out.push([.03, 0]);
+  }
+  return out.length ? out : null;
+}
+
 export class HumanBody extends EventTarget {
   PALM = -1;     // which side of the hand is the palm: checked numerically (fingertips of a fist move toward the anatomical palm, dev/palm.js)
   THUMB_OPP = .8;  // (with CMC 30°: OK tips 7 mm apart, dev/handfit.js)
@@ -220,7 +232,7 @@ export class HumanBody extends EventTarget {
   }
   resize() { const w = this.el.clientWidth || 1, h = this.el.clientHeight || 1; this.renderer.setSize(w, h, false); this.renderer.domElement.style.width = "100%"; this.renderer.domElement.style.height = "100%"; this.camera.aspect = w / h;
     if (this.shiftY) this.camera.setViewOffset(w, h, 0, h * this.shiftY, w, h); else this.camera.clearViewOffset();
-    this.camera.updateProjectionMatrix(); }
+    this.camera.updateProjectionMatrix(); if (this.composer) this.composer.setSize(w, h); }
   // move the picture up (+) or down (-) by a share of the height, e.g. to keep the body clear of a caption
   setShift(f) { this.shiftY = f || 0; this.resize(); }
 
@@ -723,6 +735,9 @@ export class HumanBody extends EventTarget {
     if (this.regionBend) for (const r in this.regionBend) { const rb = this.regionBend[r], segs = REGION[r] || []; for (const s of segs) this._rot(s, rb.flex / segs.length, rb.twist / segs.length, rb.side / segs.length); }
     for (const s of NECK) this._rot(s, P.neckFlex * (SHARE.nflex[s] || 0) + (s === "neck01" ? br * .6 : 0), P.neckTwist * (SHARE.ntwist[s] || 0), P.neckSide * (SHARE.nside[s] || 0));
     this._rot("clavicleL", 0, 0, -br * .5); this._rot("clavicleR", 0, 0, br * .5);
+    // a living head never holds still: slow small drift (incommensurate sines), a little more while speaking
+    if (this.live && this.micro) { const t = this.t, sp = this._talk && t < this._talk.until ? 1.8 : 1;
+      this._rot("head", (.9 * Math.sin(t * .53) + .5 * Math.sin(t * 1.31 + 1)) * sp, (1.1 * Math.sin(t * .37 + 2) + .4 * Math.sin(t * 1.07)) * sp, .6 * Math.sin(t * .29 + .5) * sp); }
     this._face(P);
     // legs: undo the hip hinge so they stay upright, then hip flexion/abduction, knee, and a foot that stays flat
     for (const [S, K, A] of [["L", P.kneeL, P.hipLRaise], ["R", P.kneeR, P.hipRRaise]]) {
@@ -787,10 +802,26 @@ export class HumanBody extends EventTarget {
   // (millimetres, in the body frame: x to the body's left, y up, z forward); the eyes turn for the gaze
   _face(P) {
     const sm = P.smile, up = Math.max(0, sm), dn = Math.max(0, -sm), bw = P.brows, bu = Math.max(0, bw), bd = Math.max(0, -bw);
-    const t = this.t, auto = this.live ? Math.max(0, 1 - Math.abs(((t % 4.3) - 4.15) / .09)) : 0;      // a natural blink every ~4 s
+    const t = this.t;
+    // blinks: at random 2-6 s apart, sometimes twice in a row (micro: a page asks for the living details); otherwise every ~4 s
+    let auto = 0;
+    if (this.live && this.micro) { const B = this._blink || (this._blink = { next: t + 2, at: -9 });
+      if (t > B.next) { B.at = t; B.next = t + (Math.random() < .15 ? .35 : 2 + Math.random() * 4); }
+      auto = Math.max(0, 1 - Math.abs((t - B.at - .07) / .07)); }
+    else if (this.live) auto = Math.max(0, 1 - Math.abs(((t % 4.3) - 4.15) / .09));
+    // saccades: the eyes jump to a new point near the viewer's face every 0.6-2.5 s
+    let sx = 0, sy = 0;
+    if (this.live && this.micro) { const C = this._sacc || (this._sacc = { next: 0, x: 0, y: 0 }); if (t > C.next) { C.next = t + .6 + Math.random() * 1.9; C.x = (Math.random() - .5) * 5; C.y = (Math.random() - .5) * 3; } sx = C.x; sy = C.y; }
     // speaking: the jaw opens and closes at syllable rate while talk() runs (a page calls it with the speech)
-    const tk = this._talk && t < this._talk.until ? (.5 + .5 * Math.sin(t * 15.7)) * (.6 + .4 * Math.sin(t * 4.1 + 1)) * Math.min(1, (this._talk.until - t) * 4) : 0;
-    this._rot("jaw", P.jawOpen + tk * 9, 0, 0);
+    let tk = 0, round = 0;
+    if (this._talk && t < this._talk.until) {
+      const T = this._talk;
+      if (T.vis) { const u = (t - T.t0) / (T.until - T.t0) * T.vis.length, i = Math.min(T.vis.length - 1, Math.floor(u)), f = u - i, a = T.vis[i], b = T.vis[Math.min(T.vis.length - 1, i + 1)];
+        const e = f * f * (3 - 2 * f); tk = a[0] + (b[0] - a[0]) * e; round = a[1] + (b[1] - a[1]) * e; }      // visemes from the text
+      else tk = (.5 + .5 * Math.sin(t * 15.7)) * (.6 + .4 * Math.sin(t * 4.1 + 1));
+      tk *= Math.min(1, (T.until - t) * 4);
+    }
+    this._rot("jaw", P.jawOpen + tk * 11, 0, 0);
     // eye contact: the eyes turn toward the camera (the viewer), within what eyes can turn without the head
     let gx = 0, gy = 0;
     if (this.gaze && this.bones.head) {
@@ -801,12 +832,12 @@ export class HumanBody extends EventTarget {
     for (const [S, sg] of [["L", 1], ["R", -1]]) {
       const bl = Math.min(1, P["blink" + S] + auto - (this.eyeOpen || 0));            // eyeOpen: a more awake look (a character page sets it)
       this._rot("orbicularis03" + S, bl * 34, 0, 0); this._rot("orbicularis04" + S, -bl * 6 - up * 7, 0, 0);   // upper lid down; lower lid up (also in a real smile)
-      for (const c of ["oris03" + S, "oris07" + S]) this._move(c, sg * (.009 * up + .002 * dn), .008 * up - .007 * dn, -.004 * up);
+      for (const c of ["oris03" + S, "oris07" + S]) this._move(c, sg * (.009 * up + .002 * dn - .006 * round), .008 * up - .007 * dn, -.004 * up + .004 * round);
       this._move("risorius03" + S, sg * .006 * up, .006 * up - .003 * dn, -.002 * up);
       this._move("levator05" + S, sg * .002 * up, .004 * up, 0);
       this._move("oculi01" + S, -sg * .003 * bd, .005 * bu - .003 * bd, .001 * bu);                           // brows: up, or down and together
       this._move("oculi02" + S, 0, .004 * bu - .002 * bd, 0);
-      this._rot("eye" + S, -(P.lookY + gy), P.lookX + gx, 0);
+      this._rot("eye" + S, -(P.lookY + gy + sy), P.lookX + gx + sx, 0);
     }
   }
   frame() {
@@ -826,7 +857,8 @@ export class HumanBody extends EventTarget {
       const T = this.camTween, u = Math.min(1, (this.t - T.t0) / T.dur), e = u * u * (3 - 2 * u);
       this.controls.target.lerpVectors(T.a.t, T.b.t, e); this.camera.position.lerpVectors(T.a.p, T.b.p, e); if (u >= 1) this.camTween = null;
     }
-    this.controls.update(); this.renderer.render(this.scene, this.camera);
+    this.controls.update(); if (this.onBeforeRender) this.onBeforeRender(raw);
+    if (this.composer) this.composer.render(); else this.renderer.render(this.scene, this.camera);
   }
   // jump to the end of every running transition (pose and camera) — for scripts, tests and screenshots
   muscles({ drive, skin, tension } = {}) {
@@ -933,7 +965,7 @@ export class HumanBody extends EventTarget {
     return { ...this.shape };
   }
   // lips move for this many seconds (with speech, captions); 0 stops them
-  talk(seconds) { this._talk = seconds > 0 ? { until: this.t + seconds } : null; return { ok: true, seconds }; }
+  talk(seconds, text) { this._talk = seconds > 0 ? { t0: this.t, until: this.t + seconds, vis: text ? visemes(text) : null } : null; return { ok: true, seconds }; }
   // eyes follow the camera: 0 off .. 1 fully
   setGaze(v) { this.gaze = Math.max(0, Math.min(1, +v || 0)); return { ok: true, gaze: this.gaze }; }
   // soft tissue on springs (models with jiggle bones, see jiggle.js): on/off and strength (1 = natural)
