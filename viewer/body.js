@@ -8,7 +8,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { poreNormalMap, sssLights } from "./skin-detail.js";
-import { skinMaps, skinLook as skinLookShader } from "./skin-look.js";
+import { skinMaps, skinLook as skinLookShader, wrinkleDriver } from "./skin-look.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
@@ -1300,7 +1300,8 @@ export class HumanBody extends EventTarget {
     if (!skin.geometry.attributes.aSkin) { const sk = skin.skeleton, at = b => { const i = b && sk ? sk.bones.indexOf(b) : -1; return i < 0 ? null : new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[i].clone().invert()); };
       const eL = at(this.bones.eyeL), eR = at(this.bones.eyeR);
       this.skinZones = skinMaps(skin, { eyes: eL && eR ? [eL, eR] : null, head: at(this.bones.head), lip: this._lipMask() }); }
-    skinLookShader(M, opt); return { ok: true, ...this.skinZones };
+    const U = skinLookShader(M, opt); if (!skin.userData.wrinkles) skin.userData.wrinkles = wrinkleDriver(skin, U);
+    return { ok: true, ...this.skinZones, wrinkles: skin.userData.wrinkles };
   }
   // the way hair is combed where its texture does not say: back from the face, and down (world), for hair-look.js
   _hairBack() {
