@@ -59,12 +59,12 @@ export function skinMaps(mesh, { eyes, head, lip = null, foldLo = .03, foldHi = 
   for (let it = 0; it < 2; it++) { const D = new Float32Array(m); for (let j = 0; j < m; j++) { let s = C[j] * 2, w = 2; for (const k of nb[j]) { s += C[k]; w++; } D[j] = s / w; } C = D; }
 
   // ---- thin: the nearest skin facing the other way, behind the point along its normal (a grid of 1.5 cm cells)
-  const cs = thinHi * 1.25, grid = new Map(), cell = (x, y, z) => Math.floor(x / cs) + "," + Math.floor(y / cs) + "," + Math.floor(z / cs);
+  const cs = thinHi * 1.25, grid = new Map(), ck = (a, b, e) => ((a + 512) * 1024 + (b + 512)) * 1024 + (e + 512), cell = (x, y, z) => ck(Math.floor(x / cs), Math.floor(y / cs), Math.floor(z / cs));
   for (let j = 0; j < m; j++) { const k = cell(Q[j * 3], Q[j * 3 + 1], Q[j * 3 + 2]); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(j); }
   const T = new Float32Array(m);
   for (let j = 0; j < m; j++) { const x = Q[j * 3], y = Q[j * 3 + 1], z = Q[j * 3 + 2], nx = QN[j * 3], ny = QN[j * 3 + 1], nz = QN[j * 3 + 2];
     const gx = Math.floor(x / cs), gy = Math.floor(y / cs), gz = Math.floor(z / cs); let best = Infinity;
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let e = -1; e <= 1; e++) { const l = grid.get((gx + a) + "," + (gy + b) + "," + (gz + e)); if (!l) continue;
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let e = -1; e <= 1; e++) { const l = grid.get(ck(gx + a, gy + b, gz + e)); if (!l) continue;
       for (const k of l) { if (QN[k * 3] * nx + QN[k * 3 + 1] * ny + QN[k * 3 + 2] * nz > -.3) continue;
         const dx = Q[k * 3] - x, dy = Q[k * 3 + 1] - y, dz = Q[k * 3 + 2] - z, t = -(dx * nx + dy * ny + dz * nz); if (t <= 0) continue;
         const side = Math.hypot(dx + t * nx, dy + t * ny, dz + t * nz); if (side < Math.max(.003, t * .5) && t < best) best = t; } }
