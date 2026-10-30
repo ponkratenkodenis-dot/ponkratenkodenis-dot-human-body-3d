@@ -83,6 +83,7 @@ export class MuscleDrive {
     this.texW = W;
     // skin and clothes: the two nearest muscles under each vertex
     for (const m of [...b.layerMeshes.skin.filter(x => x.name === "Body"), ...b.layerMeshes.clothes]) this._coupleSkin(m, MH, C);
+    this._MH = MH; this._C = C;                            // kept: clothes put on later are coupled too (couple)
     this.stats = { muscles: this.M.length, attached: this.M.filter(r => r.attached).length };
     return this.stats;
   }
@@ -162,11 +163,15 @@ export class MuscleDrive {
     hook(mat); rec.hook = hook;
   }
 
+  // a piece of clothing put on after load lies on the muscles like the skin does (else a bulging muscle pushes the
+  // skin through it)
+  couple(m) { if (this._MH && m.isSkinnedMesh && !m.geometry.attributes.aMi) this._coupleSkin(m, this._MH, this._C); }
   _coupleSkin(m, MH, C) {
     const g = m.geometry, p = g.attributes.position, n = p.count, v = new THREE.Vector3(), R = this.opt.skinR;
+    const XF = this.b && this.b._gFrame && this.b.parts && this.b.parts.get("Body") ? this.b._gFrame(m) : m.bindMatrix;   // a garment bound in another frame
     const mi = new Float32Array(n * 2), mw = new Float32Array(n * 2);
     for (let i = 0; i < n; i++) {
-      v.fromBufferAttribute(p, i).applyMatrix4(m.bindMatrix);
+      v.fromBufferAttribute(p, i).applyMatrix4(XF);
       const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C), best = new Map(), r = Math.ceil(R / C);
       for (let a = -r; a <= r; a++) for (let b2 = -r; b2 <= r; b2++) for (let c = -r; c <= r; c++) {
         const L = MH.get(`${cx + a},${cy + b2},${cz + c}`); if (!L) continue;
@@ -177,7 +182,7 @@ export class MuscleDrive {
       const s = mw[i * 2] + mw[i * 2 + 1]; if (s > 1) { mw[i * 2] /= s; mw[i * 2 + 1] /= s; }
     }
     g.setAttribute("aMi", new THREE.BufferAttribute(mi, 2)); g.setAttribute("aMw", new THREE.BufferAttribute(mw, 2));
-    const mat = m.material, prev = mat.onBeforeCompile, self = this;
+    const mat = m.material, prev = mat.onBeforeCompile, self = this, prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => "";
     if (mat.userData.uMus) return;                         // a material shared by two meshes is hooked once
     mat.userData.uMus = { uMusTex: { value: this.tex }, uMusW: { value: this.texW }, uSkinOn: { value: 1 } };
     mat.onBeforeCompile = (sh, r) => {
@@ -186,7 +191,7 @@ export class MuscleDrive {
       sh.vertexShader = "attribute vec2 aMi; attribute vec2 aMw; uniform sampler2D uMusTex; uniform float uMusW; uniform float uSkinOn;\n" +
         sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n { float d = aMw.x * texelFetch(uMusTex, ivec2(int(aMi.x), 0), 0).r + aMw.y * texelFetch(uMusTex, ivec2(int(aMi.y), 0), 0).r;\n   transformed += normal * d * uSkinOn; }");
     };
-    mat.customProgramCacheKey = () => "skin-on-muscle-" + (mat.vertexColors ? 1 : 0);
+    mat.customProgramCacheKey = () => "skin-on-muscle-" + (mat.vertexColors ? 1 : 0) + "|" + prevKey();
     mat.needsUpdate = true;
   }
 

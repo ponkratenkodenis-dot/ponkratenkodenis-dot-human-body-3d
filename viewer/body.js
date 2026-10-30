@@ -5,11 +5,16 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { poreNormalMap, sssLights } from "./skin-detail.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
 import { Jiggle } from "./jiggle.js";
+import { hairSpring, dangleSpring } from "./hair-spring.js";
+import { SkinWrap } from "./skin-wrap.js";
+import { retarget } from "./retarget.js";
 
 const D2R = Math.PI / 180;
 export const LAYERS = ["clothes", "hair", "skin", "muscles", "organs", "skeleton"];
@@ -192,6 +197,9 @@ function visemes(text) {
   return out.length ? out : null;
 }
 
+// pose keys an idle clip may play over (the face, the gaze, breathing)
+const IDLE_FREE = new Set(["breath", "jawOpen", "smile", "brows", "blinkL", "blinkR", "lookX", "lookY"]);
+const wkey = (x, y, z) => ((x + 512) * 1024 + (y + 512)) * 1024 + (z + 512);
 export class HumanBody extends EventTarget {
   PALM = -1;     // which side of the hand is the palm: checked numerically (fingertips of a fist move toward the anatomical palm, dev/palm.js)
   THUMB_OPP = .8;  // (with CMC 30°: OK tips 7 mm apart, dev/handfit.js)
@@ -237,8 +245,8 @@ export class HumanBody extends EventTarget {
   setShift(f) { this.shiftY = f || 0; this.resize(); }
 
   async load(onProgress) {
-    const L = new GLTFLoader(), dr = new DRACOLoader(); dr.setDecoderPath(this.opt.draco); if (this.opt.dracoType) dr.setDecoderConfig({ type: this.opt.dracoType }); L.setDRACOLoader(dr);
-    let g;
+    const L = new GLTFLoader(), dr = new DRACOLoader(); dr.setDecoderPath(this.opt.draco); if (this.opt.dracoType) dr.setDecoderConfig({ type: this.opt.dracoType }); L.setDRACOLoader(dr); L.setMeshoptDecoder(MeshoptDecoder);   // Draco (our older builds) or meshopt (the master character)
+    this._L = L; let g;
     if (/\.json$/.test(this.opt.url)) {                    // the model split into base64 text parts (for hosts that only serve text)
       const base = this.opt.url.replace(/[^/]*$/, ""), man = await (await fetch(this.opt.url)).json(), out = new Uint8Array(man.bytes); let off = 0, done = 0;
       await Promise.all(man.parts.map(async (p, i) => { const t = await (await fetch(base + p)).text(); man.parts[i] = t; onProgress && onProgress(++done / man.parts.length * .9); }));
@@ -277,6 +285,9 @@ export class HumanBody extends EventTarget {
     this._tuckShoes();
     if (this.opt.jiggle) { this.jiggle = new Jiggle(this, Array.isArray(this.opt.jiggle) ? this.opt.jiggle : undefined); if (!this.jiggle.count) this.jiggle = null; }
     try { await this._loadShape(); } catch (e) { console.warn("body shape off:", e); }
+    this._initWardrobe(); this._browTint();
+    if (this.opt.softTissue !== false && this.jiggle) try { this.addSoftTissueDefaults(); } catch (e) { console.warn("soft tissue off:", e); }   // thighs and belly on springs
+    if (this.opt.eyeColor !== false) await this.setEyeColor(this.opt.eyeColor || "brownlight");
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
   }
@@ -581,14 +592,66 @@ export class HumanBody extends EventTarget {
     };
     mat.customProgramCacheKey = () => "shoe-tuck|" + prevKey(); mat.needsUpdate = true;
   }
+  // clothes stand a hair off the skin (cloth thickness), so the two never fight for the same pixels
+  _inflate(mat, d) {
+    if (mat.userData.inflated) return; mat.userData.inflated = true; const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => "";
+    mat.onBeforeCompile = (sh, r) => { prev && prev.call(mat, sh, r); sh.vertexShader = sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>\n transformed += normal * ${d.toFixed(4)};`); };
+    mat.customProgramCacheKey = () => "inflate" + d + "|" + prevKey(); mat.needsUpdate = true;
+    // and it wins the depth test against skin a few millimetres in front of it (a stretched spot under the arm)
+    mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -12;
+  }
+  // MakeHuman's shoes carry a sock up the shin. The shoe's shader can cut it at the shoe line (rest height by heel-to-toe
+  // position, from the item) and dye what is left inside the shoe; which of the two is on is set by _updateSocks
+  // (no socks asked for: cut + dye; trousers or leggings over the shin: cut only, so the sock cannot poke through)
+  _sockShader(mat, sock, tint = "#17171b") {
+    const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => "";
+    const c = sock.rgb.map(x => x.toFixed(3)).join(","), K = sock.collar.length, tab = sock.collar.map(x => x.toFixed(4)).join(",");
+    const U = mat.userData.sockU = { uCut: { value: 0 }, uDye: { value: 0 }, uSockTint: { value: new THREE.Color(tint) } };
+    mat.onBeforeCompile = (sh, r) => {
+      prev && prev.call(mat, sh, r); Object.assign(sh.uniforms, U);
+      sh.vertexShader = "varying vec2 vSock;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n#ifdef USE_SKINNING\n vSock = (bindMatrix * vec4(position, 1.0)).yz;\n#else\n vSock = position.yz;\n#endif");
+      sh.fragmentShader = "varying vec2 vSock; uniform vec3 uSockTint; uniform float uCut; uniform float uDye;\n" + sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
+ if (uCut > .5) { const float C[${K}] = float[${K}](${tab}); float t = clamp((vSock.y - ${sock.z[0].toFixed(4)}) / ${(sock.z[1] - sock.z[0]).toFixed(4)}, 0., 1.) * ${K - 1}.;
+   int i = int(min(t, ${K - 2}.)); float line = mix(C[i], C[i + 1], t - float(i));
+   if (vSock.x > line) discard;
+#ifdef USE_MAP
+   vec3 sc = pow(max(sampledDiffuseColor.rgb, vec3(0.)), vec3(1. / 2.2)); float sat = max(sc.r, max(sc.g, sc.b)) - min(sc.r, min(sc.g, sc.b));
+   if (uDye > .5 && (distance(sc, vec3(${c})) < .25 || (sat < .1 && sc.g > .45))) diffuseColor.rgb = uSockTint * (.6 + .4 * sc.g);
+#endif
+ }`);
+    };
+    mat.customProgramCacheKey = () => "sock|" + prevKey(); mat.needsUpdate = true;
+  }
+  _updateSocks() {
+    const S = this.worn && this.worn.shoes, O = this.worn && this.worn.outfit; if (!S || !S.sockMasks) return;
+    // the outfit covers the shin (leggings, trousers): skin at rest heights 15-28 cm is under it
+    let shin = 0; const P = this._skinPos;
+    if (O && O.mask) for (let i = 0; i < O.mask.length; i++) if (O.mask[i] && P[i * 3 + 1] > .15 && P[i * 3 + 1] < .28) shin++;
+    const cut = !S.socks || shin > 40, dye = !S.socks;
+    for (const m of S.meshes) { const U = m.material && m.material.userData.sockU; if (U) { U.uCut.value = cut ? 1 : 0; U.uDye.value = dye ? 1 : 0; } }
+    S.mask = cut ? S.sockMasks.cut : S.sockMasks.full; this._updateSkinMask();
+  }
   _mat(m, o) { const n = new THREE.MeshStandardMaterial({ color: o.color != null ? o.color : m.color, roughness: o.roughness, metalness: 0 }); return n; }
   _skinMaterial(mesh) {
-    const m = new THREE.MeshPhysicalMaterial({ color: 0xc8987f, roughness: .55, sheen: .4, sheenColor: new THREE.Color(0xffd8c8), sheenRoughness: .6, vertexColors: true });
-    m.userData.u = { uHideCloth: { value: 1 }, uHideShoes: { value: 1 } };
+    // skin, not plastic: a soft specular (IOR 1.4) instead of a strong sheen, pores in the normals, and the direct light
+    // wrapping a little round the forms, redder at the shadow's edge (skin-detail.js: light under the skin)
+    const m = new THREE.MeshPhysicalMaterial({ color: 0xc8987f, roughness: .5, ior: 1.4, specularIntensity: .5, sheen: .12, sheenColor: new THREE.Color(0xffd8c8), sheenRoughness: .55, vertexColors: true });
+    m.normalMap = poreNormalMap(); m.normalScale.set(.07, .07);
+    const sss = sssLights();
+    // skin under clothes (R) is not cut out but tucked a few millimetres in, so a hem that rides up shows skin, not a
+    // hole, and a skin triangle half under the cloth cannot poke through it; skin in shoes (G) is cut out (feet are
+    // wider than some shoes)
+    m.userData.u = { uHideCloth: { value: 1 }, uHideShoes: { value: 1 }, uTuck: { value: .012 }, uSat: { value: .8 } };
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, m.userData.u);
-      sh.fragmentShader = "uniform float uHideCloth; uniform float uHideShoes;\n" + sh.fragmentShader.replace("#include <color_fragment>",
-        "#ifdef USE_COLOR\n if (uHideCloth > .5 && vColor.r > .5) discard; if (uHideShoes > .5 && vColor.g > .5) discard;\n#endif");
+      sh.vertexShader = "uniform float uHideCloth; uniform float uTuck;\n" + sh.vertexShader.replace("#include <begin_vertex>",
+        "#include <begin_vertex>\n#ifdef USE_COLOR\n transformed -= normal * (uTuck * uHideCloth * color.r);\n#endif");
+      if (sss) sh.fragmentShader = sh.fragmentShader.replace("#include <lights_physical_pars_fragment>", sss);
+      // the skin texture's own blush (knees, elbows, knuckles) reads as sunburn once the light wraps red round the
+      // forms: its colour is taken down a little toward its brightness
+      sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", "#include <map_fragment>\n { float sl = dot(diffuseColor.rgb, vec3(.3, .59, .11)); diffuseColor.rgb = mix(vec3(sl), diffuseColor.rgb, uSat); }");
+      sh.fragmentShader = "uniform float uHideShoes; uniform float uSat;\n" + sh.fragmentShader.replace("#include <color_fragment>",
+        "#ifdef USE_COLOR\n if (uHideShoes > .5 && vColor.g > .5) discard; if (uHideShoes > .5 && vColor.b > .999) discard;\n#endif");
     };
     if (mesh.material && mesh.material.map) { m.map = mesh.material.map; m.color.set(0xf4ece8); }   // a model with a skin texture keeps it
     mesh.material = m; this.skinMat = m;
@@ -598,6 +661,7 @@ export class HumanBody extends EventTarget {
   applyLayers() {
     for (const l of LAYERS) for (const m of this.layerMeshes[l]) {
       m.visible = this.layerOn[l] && !m.userData.hidden;
+      if (m.userData.wrapProxy) { m.userData.wrapShown = m.visible; m.visible = false; }   // (a wrapped garment shows its proxy instead)
       if (this.hl && this.hl.has(m)) { m.renderOrder = 20; continue; }
       const a = (this.opacity[l] == null ? 1 : this.opacity[l]) * (m.userData.alphaK || 1), mat = m.material;
       const tr = a < .999; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6; m.renderOrder = { skeleton: 1, organs: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
@@ -722,7 +786,7 @@ export class HumanBody extends EventTarget {
     this._q2.copy(B.userData.pri).multiply(this._q).multiply(B.userData.pr);       // body-axis rotation expressed in the bone's parent frame
     B.quaternion.premultiply(this._q2);
   }
-  _applyPose() {
+  _applyPose(plant = true) {
     const P = this.pose; this._e = this._e || new THREE.Euler(); this._q = this._q || new THREE.Quaternion(); this._q2 = this._q2 || new THREE.Quaternion();
     for (const k in this.bones) { const B = this.bones[k]; if (B.userData.rest) B.quaternion.copy(B.userData.rest); if (B.userData.restPos && k !== "root") B.position.copy(B.userData.restPos); }
     this._e.set(P.bodyPitch * D2R, 0, P.bodyRoll * D2R, "XYZ"); this.root.quaternion.setFromEuler(this._e);
@@ -773,7 +837,10 @@ export class HumanBody extends EventTarget {
         for (let j = 1; j <= 3; j++) this._rotAx(`finger${i + 1}-${j}${S}`, H.ax[`finger${i + 1}-${j}${S}`], c * T[j - 1]);
       });
     }
-    // keep the feet planted: move the whole body so the feet stay where they stood
+    if (plant) this._plant(P);
+  }
+  // keep the feet planted: move the whole body so the feet stay where they stood
+  _plant(P) {
     this.root.position.set(0, 0, 0); this.root.updateMatrixWorld(true);
     // feet on the floor: across the floor the feet stay where they stood (the balls of the feet when pointing them, as on
     // tiptoe); up and down, the lowest point of either foot (heel or ball) touches the floor, so a lifted leg in a step
@@ -796,6 +863,12 @@ export class HumanBody extends EventTarget {
       this.root.position.set((rest.x - f.x) * (1 - lying) - pel.x * lying, dy * (1 - lying) - lo * lying, (rest.z - f.z) * (1 - lying) - pel.z * lying);
     } else if (this.walking) this.root.position.set(0, dy, 0);   // walking in place is on a treadmill: the stance foot slides back, the body stays
     else this.root.position.set(rest.x - f.x, dy, rest.z - f.z);
+    // a clip that leaves the floor (a jump, a run's flight; marked air): its root bone's rise is not planted away
+    const C = this._clip, R = this.bones.root;
+    if (C && C.air && R && R.parent) {
+      const M = R.parent.matrixWorld, r0 = (R.userData.restPos || R.position).clone().applyMatrix4(M), r1 = R.position.clone().applyMatrix4(M);
+      this.root.position.y += Math.max(0, r1.y - r0.y);
+    }
     this.lying = lying;
   }
   // face: the jaw turns about the jaw joint; eyelids turn about the eye centre; mouth corners and brows are moved
@@ -821,13 +894,28 @@ export class HumanBody extends EventTarget {
       else tk = (.5 + .5 * Math.sin(t * 15.7)) * (.6 + .4 * Math.sin(t * 4.1 + 1));
       tk *= Math.min(1, (T.until - t) * 4);
     }
-    this._rot("jaw", P.jawOpen + tk * 11, 0, 0);
+    const AK = this._arkitMap();
+    if (!AK) this._rot("jaw", P.jawOpen + tk * 11, 0, 0);
     // eye contact: the eyes turn toward the camera (the viewer), within what eyes can turn without the head
     let gx = 0, gy = 0;
     if (this.gaze && this.bones.head) {
-      const h = this.bones.head.getWorldPosition(new THREE.Vector3()), v = this.camera.position.clone().sub(h).applyQuaternion(this.root.getWorldQuaternion(new THREE.Quaternion()).invert());
+      const h = this.bones.head.getWorldPosition(new THREE.Vector3()), v = (this.gazeTarget || this.camera.position).clone().sub(h).applyQuaternion(this.root.getWorldQuaternion(new THREE.Quaternion()).invert());
       gx = THREE.MathUtils.clamp(Math.atan2(v.x, v.z) * 180 / Math.PI - P.neckTwist - P.spineTwist, -28, 28) * this.gaze;
       gy = THREE.MathUtils.clamp(Math.atan2(v.y, Math.hypot(v.x, v.z)) * 180 / Math.PI + P.neckFlex + .5 * P.spineFlex, -18, 18) * this.gaze;
+    }
+    if (AK) {                                                                         // a character with an ARKit face: its own shapes
+      const set = (n, w) => { for (const [m, i] of AK[n] || []) m.morphTargetInfluences[i] = THREE.MathUtils.clamp(w, 0, 1); };
+      const W = { jawOpen: (P.jawOpen + tk * 11) / 17, mouthFunnel: round * .55, mouthPucker: round * .45, browInnerUp: bu, browOuterUpLeft: bu * .8, browOuterUpRight: bu * .8,
+        browDownLeft: bd, browDownRight: bd, mouthFrownLeft: dn, mouthFrownRight: dn, mouthSmileLeft: up * .9, mouthSmileRight: up * .85, cheekSquintLeft: up * .5, cheekSquintRight: up * .45,
+        eyeSquintLeft: up * .2, eyeSquintRight: up * .2 };
+      for (const [S, side] of [["L", "Left"], ["R", "Right"]]) W["eyeBlink" + side] = Math.max(0, Math.min(1, P["blink" + S] + auto - (this.eyeOpen || 0)));
+      const FC = this._faceClip;                                                      // a performance from video (ARKit curves) overrides
+      if (FC) { const u = (t - FC.t0) / FC.dur; if (u >= 1 && !FC.loop) this._faceClip = null; else {
+        const x = (u % 1) * FC.d.frames.length, i = Math.floor(x), f = x - i, A0 = FC.d.frames[i], A1 = FC.d.frames[Math.min(i + 1, FC.d.frames.length - 1)];
+        FC.d.names.forEach((n, k) => { W[n] = (A0[k] * (1 - f) + A1[k] * f) * FC.gain; }); } }
+      for (const n in W) set(n, W[n]);
+      for (const [S] of [["L"], ["R"]]) this._rot("eye" + S, -(P.lookY + gy + sy), P.lookX + gx + sx, 0);
+      return;
     }
     for (const [S, sg] of [["L", 1], ["R", -1]]) {
       const bl = Math.min(1, P["blink" + S] + auto - (this.eyeOpen || 0));            // eyeOpen: a more awake look (a character page sets it)
@@ -845,9 +933,21 @@ export class HumanBody extends EventTarget {
     if (this.root) {
       this._motion(raw);
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
-      this._applyPose();
+      // between moves the body stands as a person does (an idle mocap loop), not in the model's rest pose; an exercise,
+      // walking or any posed animation takes over from it
+      let busy = !!(this.anim || this.walking || this.lying > .2);
+      if (!busy) for (const k of POSE_KEYS) if (!IDLE_FREE.has(k) && Math.abs(this.target[k]) > .5) { busy = true; break; }   // a pose was asked for
+      if (this.idleClip && this.clips && this.clips[this.idleClip]) {
+        if (!this._clip && !busy) this.playClip(this.idleClip, { loop: true, fade: .8, idle: true });
+        else if (this._clip && this._clip.idle && busy && this._clip.target > 0) this.stopClip(.4);
+      }
+      const clip = !!this._clip; this._applyPose(!clip);
+      if (clip) { if (this._clip) this._clipLayer(raw); this._plant(this.pose); }
+      if (this.onPose) { this.root.updateMatrixWorld(true); this.onPose(raw); }   // a procedural layer over the pose (avatar-ik.js: hands on the table)
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
       if (this.jiggle) { if (!this.drive) this.root.updateMatrixWorld(true); this.jiggle.update(raw); }
+      if (this.springs && this.springs.length) { if (!this.jiggle && !this.drive) this.root.updateMatrixWorld(true); for (const s of this.springs) s.update(raw); }   // hair on spring chains
+      if (this.wraps && this.wraps.length) { this.root.updateMatrixWorld(true); for (const w of this.wraps) w.update(); }   // clothes laid on the deformed skin (skin-wrap.js)
       this._paintSpine(); this._props();
       this.floor.material.opacity = .8 * (this.lying || 0); this.floor.visible = this.lying > .01;
       const down = (this.lying || 0) > .5; if (down !== !!this._wasDown) { this._wasDown = down; this.fitView(down ? "side" : "front"); this._refitAt = this.t + 2.2; }
@@ -880,8 +980,9 @@ export class HumanBody extends EventTarget {
   async _loadShape() {
     if (this.opt.shapeUrl === false) return;                 // a model built with another shape (the dealer): no slider data for it
     const D = await (await fetch(this.opt.shapeUrl || new URL("./shape-morph.json", import.meta.url).href)).json(), U = D.unit;
+    this._builtinHides = D.builtin_hides || null;              // measured skin under the model's own outfit / shoes
     const i16 = b => { const s = atob(b), a = new Int16Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = (s.charCodeAt(2 * i) | s.charCodeAt(2 * i + 1) << 8) << 16 >> 16; return a; };
-    this.shapeMacros = D.macros;
+    this.shapeMacros = D.macros; for (const k of D.macros) if (this.shape[k] == null) this.shape[k] = 0;   // every slider the file has (breast, waist, hips ...)
     for (const m of [...this.layerMeshes.skin, ...this.layerMeshes.clothes, ...this.layerMeshes.hair]) {
       const S = D.meshes[m.name]; if (!S || !S.n || !m.isSkinnedMesh) continue;
       const base = i16(S.base), g = m.geometry, p = g.attributes.position, n = p.count, C = .005, H = new Map(), key = (x, y, z) => `${x},${y},${z}`;
@@ -905,8 +1006,11 @@ export class HumanBody extends EventTarget {
       const nrm = off => { for (let i = 0; i < n; i++) { P[i * 3] = p.getX(i) + (off ? off[i * 3] : 0); P[i * 3 + 1] = p.getY(i) + (off ? off[i * 3 + 1] : 0); P[i * 3 + 2] = p.getZ(i) + (off ? off[i * 3 + 2] : 0); }
         G.setAttribute("position", new THREE.BufferAttribute(P, 3)); G.computeVertexNormals(); return G.attributes.normal.array.slice(); };
       const N0 = nrm(null), DN = T.map(t => { const N1 = nrm(t); for (let i = 0; i < n * 3; i++) N1[i] -= N0[i]; return N1; });
-      g.morphAttributes.position = T.map(t => new THREE.BufferAttribute(t, 3)); g.morphAttributes.normal = DN.map(t => new THREE.BufferAttribute(t, 3));
-      g.morphTargetsRelative = true; m.updateMorphTargets(); m.morphTargetInfluences.fill(0); m.userData.shapeHits = hit; this.shapeMeshes.push(m);
+      // after the model's own morph targets (a character's ARKit face, say), which keep their names and indices
+      const pre = g.morphAttributes.position || [], nPre = pre.length, dict = { ...(m.morphTargetDictionary || {}) };
+      const preN = nPre ? (g.morphAttributes.normal && g.morphAttributes.normal.length === nPre ? g.morphAttributes.normal : pre.map(a => new THREE.BufferAttribute(new Float32Array(a.array.length), 3))) : [];
+      g.morphAttributes.position = [...pre, ...T.map(t => new THREE.BufferAttribute(t, 3))]; g.morphAttributes.normal = [...preN, ...DN.map(t => new THREE.BufferAttribute(t, 3))];
+      g.morphTargetsRelative = true; m.updateMorphTargets(); m.morphTargetDictionary = dict; m.morphTargetInfluences.fill(0); m.userData.shapeBase = nPre; m.userData.shapeHits = hit; this.shapeMeshes.push(m);
       m.material.needsUpdate = true;
     }
     this._shapeReady = true; this.setShape(this.shape);
@@ -921,8 +1025,9 @@ export class HumanBody extends EventTarget {
     const W = new Float32Array(n * 3), NW = new Float32Array(n * 3), v = new THREE.Vector3(), C = .02, H = new Map(), key = (x, y, z) => `${x},${y},${z}`;
     for (let i = 0; i < n; i++) { v.fromBufferAttribute(p, i).applyMatrix4(B); W.set([v.x, v.y, v.z], i * 3); v.fromBufferAttribute(nA, i).applyMatrix3(B3).normalize(); NW.set([v.x, v.y, v.z], i * 3);
       const k = key(Math.floor(W[i * 3] / C), Math.floor(W[i * 3 + 1] / C), Math.floor(W[i * 3 + 2] / C)); (H.get(k) || H.set(k, []).get(k)).push(i); }
-    const TP = g.morphAttributes.position.map(t => { const o = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(t, i).applyMatrix3(B3); o.set([v.x, v.y, v.z], i * 3); } return o; });
-    const TN = g.morphAttributes.normal.map(t => { const o = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(t, i).applyMatrix3(B3); o.set([v.x, v.y, v.z], i * 3); } return o; });
+    const sb = sk.userData.shapeBase || 0;
+    const TP = g.morphAttributes.position.slice(sb).map(t => { const o = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(t, i).applyMatrix3(B3); o.set([v.x, v.y, v.z], i * 3); } return o; });
+    const TN = g.morphAttributes.normal.slice(sb).map(t => { const o = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(t, i).applyMatrix3(B3); o.set([v.x, v.y, v.z], i * 3); } return o; });
     const follow = this.shapeMacros.flatMap(k => k === "muscle" ? [1, 1] : [0, 0]), GAP = .002, DEEP = .04;
     let moved = 0, meshes = 0;
     for (const m of [...this.layerMeshes.muscles, ...this.layerMeshes.skeleton]) {
@@ -961,17 +1066,486 @@ export class HumanBody extends EventTarget {
   setShape(o = {}) {
     for (const k of Object.keys(this.shape)) if (o[k] != null && isFinite(+o[k])) this.shape[k] = Math.max(-1, Math.min(1, +o[k]));
     if (Object.values(this.shape).some(v => v)) this._ensureInner();
-    for (const m of this.shapeMeshes) this.shapeMacros.forEach((k, q) => { const b = this.shape[k] || 0; m.morphTargetInfluences[q * 2] = Math.max(0, -b); m.morphTargetInfluences[q * 2 + 1] = Math.max(0, b); });
+    for (const m of this.shapeMeshes) { const o = m.userData.shapeBase || 0; this.shapeMacros.forEach((k, q) => { const b = this.shape[k] || 0; m.morphTargetInfluences[o + q * 2] = Math.max(0, -b); m.morphTargetInfluences[o + q * 2 + 1] = Math.max(0, b); }); }
+    for (const W of Object.values(this.worn || {})) for (const m of W.meshes) { const D = m.morphTargetDictionary; if (!D || !m.userData.ownShapes) continue;    // wardrobe items carry their own
+      for (const k in this.shape) { const b = this.shape[k] || 0, n = D[`shape_${k}_neg`], p = D[`shape_${k}_pos`]; if (n != null) m.morphTargetInfluences[n] = Math.max(0, -b); if (p != null) m.morphTargetInfluences[p] = Math.max(0, b); } }
     return { ...this.shape };
   }
+  // soft tissue that has no bone of its own in the model (the thighs, the belly): a bone is added under `parent` at
+  // `center` (the bind frame: y up, z to the front, metres), the skin within `r` of it hands it part of the weight it
+  // had on the bones `from` matches (all of it near the centre, fading to none at r), and it joins the jiggle springs.
+  // The clothes are not reweighted: the tissue moves less than the skin under clothes is tucked in (12 mm).
+  addSoftTissue(list, { part = null } = {}) {
+    let skin = this.parts.get("Body"); if (part) { skin = null; this.root.traverse(o => { if (!skin && o.isSkinnedMesh && o.name.includes(part)) skin = o; }); }   // (or a worn piece: a loose panel of a shirt)
+    if (!skin || !skin.isSkinnedMesh || !this.jiggle) return { ok: false };
+    const sk = skin.skeleton, g = skin.geometry, P = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, n = P.count, v = new THREE.Vector3();
+    const bones = [...sk.bones], inv = [...sk.boneInverses], added = [];
+    const X = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v.fromBufferAttribute(P, i).applyMatrix4(skin.bindMatrix); X.set([v.x, v.y, v.z], i * 3); }
+    const NI = new Uint16Array(si.array.length), NW = new Float32Array(sw.array.length);
+    for (let i = 0; i < n * 4; i++) { NI[i] = si.array[i]; NW[i] = sw.getComponent(i >> 2, i & 3); }
+    for (const t of list) {
+      const pi = sk.bones.findIndex(b => b.name === t.parent); if (pi < 0) continue;
+      const c = new THREE.Vector3(...t.center), cl = c.clone().applyMatrix4(sk.boneInverses[pi]);
+      const B = new THREE.Bone(); B.name = t.name; B.position.copy(cl); (this.bones[t.parent] || sk.bones[pi]).add(B); this.bones[t.name] = B; B.userData.rest = B.quaternion.clone(); B.userData.restPos = B.position.clone();
+      const bi = bones.length; bones.push(B); inv.push(new THREE.Matrix4().makeTranslation(-cl.x, -cl.y, -cl.z).multiply(sk.boneInverses[pi]));
+      let moved = 0;
+      for (let i = 0; i < n; i++) {
+        const d = Math.hypot(X[i * 3] - c.x, X[i * 3 + 1] - c.y, X[i * 3 + 2] - c.z); if (d >= t.r) continue;
+        const a = (t.gain || .85) * (1 - Math.min(1, Math.max(0, (d - t.r * .3) / (t.r * .7)))) ** 2; if (a < .01) continue;
+        const W = new Map(); let took = 0;
+        for (let j = 0; j < 4; j++) { const b = NI[i * 4 + j], w = NW[i * 4 + j]; if (!w) continue; const nm = bones[b].name;
+          if (t.from.test(nm)) { took += w * a; W.set(b, (W.get(b) || 0) + w * (1 - a)); } else W.set(b, (W.get(b) || 0) + w); }
+        if (took < .005) continue; W.set(bi, took); moved++;
+        const best = [...W.entries()].sort((x, y) => y[1] - x[1]).slice(0, 4), tot = best.reduce((x, e) => x + e[1], 0) || 1;
+        for (let j = 0; j < 4; j++) { NI[i * 4 + j] = best[j] ? best[j][0] : 0; NW[i * 4 + j] = best[j] ? best[j][1] / tot : 0; }
+      }
+      added.push({ ...t, moved });
+    }
+    g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(NI, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(NW, 4));
+    skin.bind(new THREE.Skeleton(bones, inv), skin.bindMatrix); this.root.updateMatrixWorld(true);
+    const n2 = this.jiggle.add(added.filter(t => t.moved).map(t => ({ bone: t.name, f: t.f, z: t.z, max: t.max, sag: t.sag || 0, wind: t.wind || 0 })));
+    return { ok: true, added: added.map(t => ({ bone: t.name, skin: t.moved })), springs: n2 };
+  }
+  // the usual places: the back of each thigh and the lower belly (from this skeleton's own bones)
+  addSoftTissueDefaults() {
+    if (this._softDefaults) return this._softDefaults;
+    const skin = this.parts.get("Body"); if (!skin || !skin.isSkinnedMesh || !this.jiggle) return { ok: false };
+    const sk = skin.skeleton, at = nm => { const i = sk.bones.findIndex(b => b.name === nm); return i < 0 ? null : new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[i].clone().invert()); };
+    const L = [];
+    for (const S of ["L", "R"]) { const hip = at("upperleg01" + S), knee = at("lowerleg01" + S); if (!hip || !knee) continue;
+      L.push({ name: "thigh" + S, parent: "upperleg01" + S, center: hip.clone().lerp(knee, .45).add(new THREE.Vector3(0, 0, -.025)).toArray(), r: .15, from: new RegExp("^upperleg0[12]" + S + "$"), f: 3.2, z: .3, max: .012, sag: .004 }); }
+    for (const S of ["L", "R"]) {                                       // the back of the upper arms and the calves: smaller, firmer
+      const sh = at("upperarm01" + S), el = at("lowerarm01" + S), kn = at("lowerleg01" + S), an = at("foot" + S);
+      if (sh && el) L.push({ name: "arm" + S, parent: "upperarm02" + S, center: sh.clone().lerp(el, .55).add(new THREE.Vector3(0, 0, -.03)).toArray(), r: .08, from: new RegExp("^upperarm0[12]" + S + "$"), gain: .7, f: 4.5, z: .3, max: .006, sag: .002 });
+      if (kn && an) L.push({ name: "calf" + S, parent: "lowerleg01" + S, center: kn.clone().lerp(an, .3).add(new THREE.Vector3(0, 0, -.035)).toArray(), r: .09, from: new RegExp("^lowerleg0[12]" + S + "$"), gain: .7, f: 5.5, z: .3, max: .005, sag: .001 });
+    }
+    const sp = at("spine04"); if (sp) L.push({ name: "belly", parent: "spine04", center: sp.clone().add(new THREE.Vector3(0, -.015, .1)).toArray(), r: .11, from: /^(spine0[345]|root)$/, f: 3.5, z: .32, max: .012, sag: .006 });
+    return (this._softDefaults = L.length ? this.addSoftTissue(L) : { ok: false });
+  }
+  // lay a worn garment on the deformed skin instead of skinning it on its own (see skin-wrap.js): part = its name or
+  // a piece of it. Costs a little CPU per frame (the skin under it is skinned on the CPU too)
+  wrapGarment(part) {
+    let m = null; this.root.traverse(o => { if (!m && o.isSkinnedMesh && o.name.includes(part)) m = o; }); if (!m) return { ok: false, error: "no mesh " + part };
+    this.root.updateMatrixWorld(true); const w = new SkinWrap(this, m); if (!w.ok) return { ok: false };
+    this.wraps = (this.wraps || []).filter(x => x.src !== m); this.wraps.push(w); this.applyLayers();
+    return { ok: true, part: m.name, verts: w.n, skin: w.U.length, far: w.far };
+  }
+  // something worn that hangs from one spot (the ends of a knot, a tassel) swings on a spring chain: part = the mesh's
+  // name (or a piece of it); front = { offset: [x, y, z], r } a sphere on the body (bind frame) it stays outside of
+  addDangle(part, { front = null, segments = 2 } = {}) {
+    let m = null; this.root.traverse(o => { if (!m && o.isSkinnedMesh && (o.name === part || o.name.includes(part))) m = o; });
+    if (!m) return { ok: false, error: "no mesh " + part };
+    this.root.updateMatrixWorld(true);
+    const d = dangleSpring(this, m, { segments, front: front && { offset: new THREE.Vector3(...front.offset), r: front.r } });
+    if (!d.ok) return { ok: false, error: "nothing hangs from " + part };
+    const W = Object.entries(this.worn || {}).find(([, w]) => w.meshes.includes(m)); d.slot = W ? W[0] : null;
+    this.springs = this.springs || []; this.springs.push(d); return { ok: true, part: m.name, moved: d.moved };
+  }
   // lips move for this many seconds (with speech, captions); 0 stops them
+  /* ---------------- wardrobe ---------------- */
+  // slots: outfit, shoes, hair (and anything an item names). The base model's own clothes and hair are the first items;
+  // an item GLB (avatar/tools/build_wardrobe.py) brings one skinned mesh on the same bone names, its own body-shape
+  // morphs (shape_<slider>_neg/pos) and the list of skin vertices it covers, which are then hidden under it
+  _initWardrobe() {
+    const body = this.parts.get("Body"); this.worn = {}; if (!body) return;
+    const g = body.geometry, p = g.attributes.position, n = p.count, col = g.attributes.color, v = new THREE.Vector3();
+    // the skin's rest positions, hashed (for matching an item's covered-skin list)
+    this._skinPos = new Float32Array(n * 3); const H = new Map(), C = .004; this._skinHash = H;
+    for (let i = 0; i < n; i++) { v.fromBufferAttribute(p, i).applyMatrix4(body.bindMatrix); this._skinPos.set([v.x, v.y, v.z], i * 3);
+      const k = `${Math.floor(v.x / C)},${Math.floor(v.y / C)},${Math.floor(v.z / C)}`; (H.get(k) || H.set(k, []).get(k)).push(i); }
+    const fromColor = ch => { const M = new Uint8Array(n); if (col) for (let i = 0; i < n; i++) M[i] = col.getComponent(i, ch) > .5 ? 1 : 0; return M; };
+    for (const [slot, re, ch] of [["outfit", /^Clothes_(?!Shoes)/, 0], ["shoes", /^Clothes_Shoes/, 1], ["hair", /^Hair$/, -1]]) {
+      const meshes = [...this.layerMeshes.clothes, ...this.layerMeshes.hair].filter(m => re.test(m.name));
+      if (meshes.length) this.worn[slot] = { id: "builtin", meshes, mask: ch >= 0 ? fromColor(ch) : null, channel: ch === 1 ? 1 : 0 };
+      if (slot === "outfit") for (const m of meshes) { if (m.material) this._inflate(m.material, .002); this._fitCloth(m); }
+      if (slot === "shoes") for (const m of meshes) this._fitShoe(m);
+    }
+    for (const [slot, b64] of Object.entries(this._builtinHides || {})) {
+      const W = this.worn[slot]; if (!W || !W.mask) continue; const M = this._maskFrom(b64);
+      // shoes: only the skin the shoe really covers (measured) goes; the model's delete group runs up the shin, above
+      // its short sock, and the leg would end in mid-air under a skirt or shorts
+      if (slot === "shoes") {                                         // (and only up to the shoe's own top, its sock included)
+        let top = -1e9; const v3 = new THREE.Vector3();
+        for (const m of W.meshes) { const q = m.geometry.attributes.position; for (let i = 0; i < q.count; i++) top = Math.max(top, v3.fromBufferAttribute(q, i).applyMatrix4(m.bindMatrix).y); }
+        for (let i = 0; i < n; i++) if (M[i] && this._skinPos[i * 3 + 1] > top - .005) M[i] = 0;
+        W.mask = M;
+      } else for (let i = 0; i < n; i++) if (M[i]) W.mask[i] = 1;
+    }
+    this._builtinMask = { outfit: this.worn.outfit && this.worn.outfit.mask, shoes: this.worn.shoes && this.worn.shoes.mask };
+    if (this._builtinHides) this._updateSkinMask();
+    // a second hairstyle in the model (Hair_Long): not worn
+    for (const m of this.layerMeshes.hair) if (!/^Hair$/.test(m.name)) m.userData.hidden = true;
+  }
+  // a garment made coarser than the skin (the base sports suit: 2k vertices over a 14k body) cuts chords through the
+  // skin's curves at knees, hips and shoulders, and the skin shows through between its vertices. Each triangle is split
+  // in four (twice for the coarse ones), every attribute and shape morph carried along, and the new vertices that sink
+  // under the skin are lifted back out to 3 mm over it
+  _subdivide(m, levels = 1) {
+    const body = this.parts.get("Body"); if (!body || !m.isSkinnedMesh || !this._skinPos || m.userData.subdiv) return; m.userData.subdiv = true;
+    for (let L = 0; L < levels; L++) {
+      const g = m.geometry; if (!g.index) return; const idx = g.index.array, A = g.attributes, n0 = A.position.count, mid = new Map(), tris = [];
+      const MA = g.morphAttributes || {}; const pairs = [];
+      const mk = (a, b) => { const k = a < b ? a * 1e6 + b : b * 1e6 + a; let i = mid.get(k); if (i == null) { i = n0 + pairs.length; mid.set(k, i); pairs.push([a, b]); } return i; };
+      for (let t = 0; t < idx.length; t += 3) { const a = idx[t], b = idx[t + 1], c = idx[t + 2], ab = mk(a, b), bc = mk(b, c), ca = mk(c, a); tris.push(a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca); }
+      const n1 = n0 + pairs.length, discrete = name => /skinIndex|^aMi$/.test(name);
+      const grow = (attr, name) => {
+        const it = attr.itemSize, src = attr, out = new (attr.array.constructor)(n1 * it);
+        for (let i = 0; i < n0; i++) for (let c = 0; c < it; c++) out[i * it + c] = src.array[i * it + c];
+        if (src.isInterleavedBufferAttribute || src.normalized) {   // quantized: read as floats, keep floats
+          const f = new Float32Array(n1 * it); for (let i = 0; i < n0; i++) for (let c = 0; c < it; c++) f[i * it + c] = src.getComponent(i, c);
+          pairs.forEach(([a, b], k) => { for (let c = 0; c < it; c++) f[(n0 + k) * it + c] = discrete(name) ? f[a * it + c] : (f[a * it + c] + f[b * it + c]) / 2; });
+          return new THREE.BufferAttribute(f, it);
+        }
+        pairs.forEach(([a, b], k) => { for (let c = 0; c < it; c++) out[(n0 + k) * it + c] = discrete(name) ? out[a * it + c] : (out[a * it + c] + out[b * it + c]) / 2; });
+        return new THREE.BufferAttribute(out, it, false);
+      };
+      const ng = new THREE.BufferGeometry();
+      for (const [name, attr] of Object.entries(A)) ng.setAttribute(name, grow(attr, name));
+      // bone weights of a new point: both ends' weights merged (the four strongest kept)
+      const SI = A.skinIndex, SW = A.skinWeight, NSI = ng.attributes.skinIndex, NSW = ng.attributes.skinWeight;
+      if (SI && SW) pairs.forEach(([a, b], k) => { const M = new Map(); for (const e of [a, b]) for (let c = 0; c < 4; c++) { const w = SW.getComponent(e, c); if (w > 0) { const j = SI.getComponent(e, c); M.set(j, (M.get(j) || 0) + w / 2); } }
+        const best = [...M.entries()].sort((x, y) => y[1] - x[1]).slice(0, 4), t = best.reduce((x, e) => x + e[1], 0) || 1;
+        for (let c = 0; c < 4; c++) { NSI.setComponent(n0 + k, c, best[c] ? best[c][0] : 0); NSW.setComponent(n0 + k, c, best[c] ? best[c][1] / t : 0); } });
+      for (const [name, list] of Object.entries(MA)) ng.morphAttributes[name] = list.map(a => grow(a, name));
+      ng.morphTargetsRelative = g.morphTargetsRelative; ng.setIndex(new THREE.BufferAttribute(n1 > 65535 ? new Uint32Array(tris) : new Uint16Array(tris), 1));
+      for (const gr of g.groups) ng.addGroup(gr.start * 4, gr.count * 4, gr.materialIndex);
+      ng.userData = g.userData; g.dispose(); m.geometry = ng;
+    }
+    // out of the skin: the nearest skin vertex and its normal (rest pose, bind space)
+    const g = m.geometry, pos = g.attributes.position, P = this._skinPos, sn = body.geometry.attributes.normal, C = .025, v = new THREE.Vector3(), nm = new THREE.Vector3();
+    const XF = this._gFrame(m), inv = XF.clone().invert(), NXF = new THREE.Matrix3().getNormalMatrix(XF); if (!this._wHash) this._hashSkinW();
+    let moved = 0; const sI = g.attributes.skinIndex, sW = g.attributes.skinWeight, bn = m.skeleton.bones;
+    const armW = i => { let a = 0; for (let c = 0; c < 4; c++) { const w = sW.getComponent(i, c); if (w > 0 && /^(upperarm|lowerarm|shoulder01)/.test(bn[sI.getComponent(i, c)].name)) a += w; } return a; };
+    const tightArm = /Sport|Top|Shirt|Tee|Suit/i.test(m.name + " " + (m.userData.part || "")) && !/Dress|Coat|Jacket|Blouse/i.test(m.name);
+    const done = new Map(), kk = i => `${Math.round(pos.getX(i) * 2000)},${Math.round(pos.getY(i) * 2000)},${Math.round(pos.getZ(i) * 2000)}`;
+    for (let i = 0; i < pos.count; i++) {
+      const wk = kk(i), dn = done.get(wk); if (dn) { if (dn !== true) pos.setXYZ(i, dn[0], dn[1], dn[2]); continue; } done.set(wk, true);   // seam copies move together
+      v.fromBufferAttribute(pos, i).applyMatrix4(XF); const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C); const sleeve = tightArm && armW(i) > .5; let bd = sleeve ? .1 : .03, bq = -1; const rr = sleeve ? 4 : 1;
+      const SN = this._skinNormals(), cn = g.attributes.normal, w3 = cn ? new THREE.Vector3().fromBufferAttribute(cn, i).applyMatrix3(NXF).normalize() : null;
+      for (let a = -rr; a <= rr; a++) for (let b = -rr; b <= rr; b++) for (let c = -rr; c <= rr; c++) for (const q of this._wHash.get(wkey(cx + a, cy + b, cz + c)) || []) {
+        if (w3 && SN[q * 3] * w3.x + SN[q * 3 + 1] * w3.y + SN[q * 3 + 2] * w3.z < .2) continue;
+        const d = Math.hypot(P[q * 3] - v.x, P[q * 3 + 1] - v.y, P[q * 3 + 2] - v.z); if (d < bd) { bd = d; bq = q; } }
+      if (bq < 0) continue; nm.set(SN[bq * 3], SN[bq * 3 + 1], SN[bq * 3 + 2]);
+      const h = (v.x - P[bq * 3]) * nm.x + (v.y - P[bq * 3 + 1]) * nm.y + (v.z - P[bq * 3 + 2]) * nm.z;
+      if (h < .003 && bd < .03) { v.addScaledVector(nm, .003 - h).applyMatrix4(inv); pos.setXYZ(i, v.x, v.y, v.z); done.set(wk, [v.x, v.y, v.z]); moved++; }
+      // a loose sleeve on a sports top is taken in to 1.5 cm round the arm: a wide sleeve on a skinned arm stretches into
+      // a wing between the chest and a raised arm, a fitted one follows it
+      else if (sleeve && h > .015) { v.addScaledVector(nm, .015 - h).applyMatrix4(inv); pos.setXYZ(i, v.x, v.y, v.z); done.set(wk, [v.x, v.y, v.z]); moved++; }
+    }
+    // normals: the carried ones, made unit again (recomputing them would split at the UV seams and draw them as lines)
+    const nr = g.attributes.normal; if (nr) for (let i = 0; i < nr.count; i++) { v.fromBufferAttribute(nr, i).normalize(); nr.setXYZ(i, v.x, v.y, v.z); }
+    g.computeBoundingSphere(); m.userData.subdivMoved = moved;
+  }
+  // shoes: the shoe stays on the foot bones; what rises above the ankle (a sock, a boot's shaft) follows the shin's skin,
+  // or a deep squat folds the ankle and the sock stays behind, leaving the cut-off shin bare
+  _fitShoe(m) {
+    if (this.opt.noFit) return; const A = this.bones.footL || this.bones.footR; if (!A) return;
+    this.root.updateMatrixWorld(true); const y0 = A.getWorldPosition(new THREE.Vector3()).y - this.root.position.y + .03;
+    this._fitWeights(m, { only: v => v.y > y0 });
+  }
+  _fitCloth(m) {
+    const n = m.geometry.attributes.position.count, lv = this.opt.noSubdiv ? 0 : n < 4000 ? 2 : n < 16000 ? 1 : 0;
+    // weights fitted on the garment as made (4 to 16 times fewer points), then carried into the finer mesh
+    if (!this.opt.noFit) this._fitWeights(m);
+    if (lv) this._subdivide(m, lv);
+    const g = m.geometry; if (lv && this.drive && this.drive.couple) { g.deleteAttribute("aMi"); g.deleteAttribute("aMw"); this.drive.couple(m); }
+  }
+  // garment bind space -> the skin's bind space (a garment file may be bound at another scale or offset: its inverse
+  // bind matrices say how; one bone both have is enough)
+  _gFrame(m) {
+    const body = this.parts.get("Body"), sb = body.skeleton.bones, gb = m.skeleton.bones, j = gb.findIndex(b => sb.includes(b));
+    const X = j < 0 ? new THREE.Matrix4() : body.skeleton.boneInverses[sb.indexOf(gb[j])].clone().invert().multiply(m.skeleton.boneInverses[j]);
+    return X.multiply(m.bindMatrix);
+  }
+  // lips a colour of their own (the skin texture barely sets them apart: at a distance the mouth vanishes). Where the
+  // lips are comes from the face's own ARKit shapes: the points the lip-roll shapes move most are the lips' red.
+  // color: the tint (lipstick, or a deeper natural lip), amount 0..1. Returns how many points it took.
+  lipTint(color = "#9c4a4e", amount = .55, { lo = .0003, hi = .0014 } = {}) {      // lo..hi: how far (m) the shapes move a point
+    const skin = this.parts.get("Body"), M = this.skinMat; if (!skin || !M) return { ok: false, error: "no skin" };
+    const g = skin.geometry, D = skin.morphTargetDictionary || {}, ma = g.morphAttributes.position || [], P = g.attributes.position, n = P.count, rel = g.morphTargetsRelative;
+    const ks = ["mouthRollUpper", "mouthRollLower"].map(k => D[k]).filter(i => i != null && ma[i]); if (!ks.length) return { ok: false, error: "no lip shapes" };
+    let L = g.attributes.aLip ? g.attributes.aLip.array : null;
+    if (!L) { L = new Float32Array(n); const W = ks.map(k => { const w = new Float32Array(n);
+        for (let i = 0; i < n; i++) { let x = ma[k].getX(i), y = ma[k].getY(i), z = ma[k].getZ(i); if (!rel) { x -= P.getX(i); y -= P.getY(i); z -= P.getZ(i); } w[i] = THREE.MathUtils.smoothstep(Math.hypot(x, y, z), lo, hi); } return w; });
+      // the lower-lip roll drags the skin under the lip too: the lower lip stops 7-11 mm under the line where the lips
+      // meet (the bottom of the upper lip)
+      const Y = new Float32Array(n), v = new THREE.Vector3(); for (let i = 0; i < n; i++) Y[i] = v.fromBufferAttribute(P, i).applyMatrix4(skin.bindMatrix).y;
+      const up = D.mouthRollUpper != null ? W[ks.indexOf(D.mouthRollUpper)] : null; let line = null;
+      if (up) { line = Infinity; for (let i = 0; i < n; i++) if (up[i] > .5 && Y[i] < line) line = Y[i]; if (!isFinite(line)) line = null; }
+      ks.forEach((k, j) => { const w = W[j], low = k === D.mouthRollLower && line != null;
+        for (let i = 0; i < n; i++) { const f = low ? THREE.MathUtils.smoothstep(Y[i], line - .011, line - .007) : 1; L[i] = Math.max(L[i], w[i] * f); } });
+      g.setAttribute("aLip", new THREE.BufferAttribute(L, 1)); }
+    const U = M.userData.lipU || (M.userData.lipU = { uLip: { value: new THREE.Color() }, uLipA: { value: 0 } }); U.uLip.value.set(color); U.uLipA.value = amount;
+    if (!M.userData.lipHooked) { M.userData.lipHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey ? M.customProgramCacheKey.bind(M) : () => "";
+      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U);
+        sh.vertexShader = "attribute float aLip; varying float vLip;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n vLip = aLip;");
+        sh.fragmentShader = "uniform vec3 uLip; uniform float uLipA; varying float vLip;\n" + sh.fragmentShader.replace("#include <alphamap_fragment>",
+          " diffuseColor.rgb = mix(diffuseColor.rgb, uLip * (.55 + .9 * dot(diffuseColor.rgb, vec3(.3, .59, .11))), vLip * uLipA);\n#include <alphamap_fragment>"); };
+      M.customProgramCacheKey = () => "lips|" + prevKey(); M.needsUpdate = true; }
+    return { ok: true, points: L.reduce((a, x) => a + (x > .5 ? 1 : 0), 0) };
+  }
+  // brows the colour of the hair (the model's are near-black strips, which reads as drawn on), a little darker, and
+  // soft-edged
+  _browTint() {
+    const brow = this.parts.get("Eyebrows"), hair = (this.worn && this.worn.hair && this.worn.hair.meshes || []).find(m => m.material && m.material.map && m.material.map.image);
+    if (!brow || !brow.material) return; let col = new THREE.Color(0x5a4030);
+    try { if (hair) { const im = hair.material.map.image, c = document.createElement("canvas"); c.width = c.height = 32; const g = c.getContext("2d"); g.drawImage(im, 0, 0, 32, 32);
+      const d = g.getImageData(0, 0, 32, 32).data; let r = 0, gg = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 160) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+      if (n) col = new THREE.Color().setRGB(r / n / 255 * .9, gg / n / 255 * .9, b / n / 255 * .9, THREE.SRGBColorSpace).multiply(hair.material.color); } } catch (e) { /* a texture from another origin */ }
+    // thinner and a touch higher (the model's brows are a wide, low band: a heavy, stern look): each brow's points drawn
+    // toward its own middle line to 70 %, the band raised 1.5 mm
+    if (!brow.userData.thinned) {
+      brow.userData.thinned = true; const p = brow.geometry.attributes.position, v = new THREE.Vector3(), inv = brow.bindMatrixInverse || new THREE.Matrix4(), M4 = brow.bindMatrix || new THREE.Matrix4();
+      const P = []; for (let i = 0; i < p.count; i++) P.push(v.fromBufferAttribute(p, i).clone().applyMatrix4(M4));
+      const bins = new Map(), key = q => `${q.x > 0 ? 1 : 0}:${Math.round(q.x / .004)}`;
+      for (const q of P) { const k = key(q), b = bins.get(k) || { y: 0, z: 0, n: 0 }; b.y += q.y; b.z += q.z; b.n++; bins.set(k, b); }
+      for (let i = 0; i < p.count; i++) { const q = P[i], b = bins.get(key(q)), my = b.y / b.n; q.y = my + (q.y - my) * .7 + .0015; q.applyMatrix4(inv); p.setXYZ(i, q.x, q.y, q.z); }
+      p.needsUpdate = true; brow.geometry.computeBoundingSphere();
+    }
+    const M = brow.material, U = M.userData.browU || (M.userData.browU = { uBrow: { value: col } }); U.uBrow.value = col;
+    if (!M.userData.browHooked) { M.userData.browHooked = true; const prev = M.onBeforeCompile;
+      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U); sh.fragmentShader = "uniform vec3 uBrow;\n" + sh.fragmentShader.replace("#include <map_fragment>", "#include <map_fragment>\n diffuseColor.rgb = mix(uBrow, diffuseColor.rgb, .08);"); };
+      M.alphaToCoverage = true; M.needsUpdate = true; }
+  }
+  _skinNormals() {
+    if (this._sN) return this._sN; const body = this.parts.get("Body"), sn = body.geometry.attributes.normal, NB = new THREE.Matrix3().getNormalMatrix(body.bindMatrix), v = new THREE.Vector3();
+    const o = this._sN = new Float32Array(sn.count * 3); for (let i = 0; i < sn.count; i++) { v.fromBufferAttribute(sn, i).applyMatrix3(NB).normalize(); o[i * 3] = v.x; o[i * 3 + 1] = v.y; o[i * 3 + 2] = v.z; } return o;
+  }
+  _hashSkinW() { const P = this._skinPos, ns = P.length / 3, C = .025; this._wHash = new Map(); for (let i = 0; i < ns; i++) { const k = wkey(Math.floor(P[i * 3] / C), Math.floor(P[i * 3 + 1] / C), Math.floor(P[i * 3 + 2] / C)); (this._wHash.get(k) || this._wHash.set(k, []).get(k)).push(i); } }
+  // a tight garment moves with the skin under it: each cloth vertex near the skin takes the skin's own bone weights
+  // there (inverse-distance mix of the nearest skin vertices), fading back to the garment's weights from 2 to 7 cm off
+  // the body (a loose hem or a skirt keeps its own). Both are skinned the same way (DQS), so the cloth then keeps its
+  // few millimetres over the skin in every pose instead of the skin coming through at the shoulders, knees and hips
+  _fitWeights(m, { only = null } = {}) {
+    const body = this.parts.get("Body"); if (!body || !m.isSkinnedMesh || !this._skinPos || m.userData.fitW) return; m.userData.fitW = true;
+    const P = this._skinPos, sg = body.geometry, sI = sg.attributes.skinIndex, sW = sg.attributes.skinWeight, sb = body.skeleton.bones, ns = P.length / 3;
+    const C = .025; if (!this._wHash) this._hashSkinW();
+    // one skeleton for both: the garment's bones, plus any of the skin's it lacks
+    const bones = m.skeleton.bones.slice(), inv = m.skeleton.boneInverses.slice(), at = new Map(bones.map((b, i) => [b, i]));
+    // (a bone the garment lacks gets its inverse bind matrix in the garment's own frame: the body's one, carried over
+    // through a bone both have; the two files need not share one bind frame)
+    const ref = bones.findIndex(b => sb.includes(b)), BI = body.skeleton.boneInverses;
+    const toG = ref < 0 ? null : BI[sb.indexOf(bones[ref])].clone().invert();
+    const idx = b => { if (!at.has(b)) { at.set(b, bones.length); bones.push(b);
+      // inv_b(garment) = inv_b(body) · inv_ref(body)⁻¹ · inv_ref(garment)
+      inv.push(ref < 0 ? BI[sb.indexOf(b)].clone() : BI[sb.indexOf(b)].clone().multiply(toG).multiply(m.skeleton.boneInverses[ref])); } return at.get(b); };
+    const g = m.geometry, pos = g.attributes.position, cI = g.attributes.skinIndex, cW = g.attributes.skinWeight, n = pos.count, v = new THREE.Vector3();
+    const XF = this._gFrame(m), FIT = new Uint8Array(n), NI = new Uint16Array(n * 4), NW = new Float32Array(n * 4), D0 = new Float32Array(n).fill(1), OWN = new Array(n), SN = this._skinNormals(), cn = g.attributes.normal, w3 = new THREE.Vector3(), NBc = new THREE.Matrix3().getNormalMatrix(XF);
+    // a tight garment (most of it within 2.5 cm of the skin: sportswear, leggings) is glued to the skin all over, its
+    // sleeves too (they would otherwise stretch into wings between the chest and a raised arm); a loose one (a skirt)
+    // only where it touches
+    const dist = []; for (let i = 0; i < n; i += 7) { v.fromBufferAttribute(pos, i).applyMatrix4(XF); const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C); let bd = .2;
+      for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) for (let c = -2; c <= 2; c++) for (const q of this._wHash.get(wkey(cx + a, cy + b, cz + c)) || []) bd = Math.min(bd, Math.hypot(P[q * 3] - v.x, P[q * 3 + 1] - v.y, P[q * 3 + 2] - v.z)); dist.push(bd); }
+    dist.sort((x, y) => x - y); const tight = dist[Math.floor(dist.length * .75)] < .025, R0 = tight ? .07 : .012, R1 = tight ? .13 : .035, rc = Math.ceil(R1 / C); m.userData.tight = tight;
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(XF); if (cn) w3.fromBufferAttribute(cn, i).applyMatrix3(NBc).normalize();
+      const own = new Map(); for (let c = 0; c < 4; c++) { const w = cW.getComponent(i, c); if (w > 0) { const b = m.skeleton.bones[cI.getComponent(i, c)]; own.set(b, (own.get(b) || 0) + w); } }
+      const cx = Math.floor(v.x / C), cy = Math.floor(v.y / C), cz = Math.floor(v.z / C), near = [];
+      // (only skin facing the same way: the inside of a sleeve under the arm belongs to the arm, not to the chest wall
+      // a centimetre away, whose surface faces the other way)
+      for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) for (let c = -rc; c <= rc; c++) for (const q of this._wHash.get(wkey(cx + a, cy + b, cz + c)) || []) {
+        if (cn && SN[q * 3] * w3.x + SN[q * 3 + 1] * w3.y + SN[q * 3 + 2] * w3.z < .2) continue;
+        const d = Math.hypot(P[q * 3] - v.x, P[q * 3 + 1] - v.y, P[q * 3 + 2] - v.z); if (d >= R1) continue;
+        // and skin of the same body part as the garment says (its own weights): a sleeve picks the arm, not the chest
+        let ov = 0; for (let c = 0; c < 4; c++) { const w = sW.getComponent(q, c); if (w > 0) ov += Math.min(w, own.get(sb[sI.getComponent(q, c)]) || 0); }
+        near.push([d * (1.6 - ov), q, d]); }
+      const acc = new Map(), add = (bi, w) => acc.set(bi, (acc.get(bi) || 0) + w);
+      near.sort((x, y) => x[0] - y[0]); const top = near.slice(0, 4).map(([, q, d]) => [d, q]), d0 = D0[i] = top.length ? Math.min(...top.map(t => t[0])) : 1, f = only && !(FIT[i] = only(v) ? 1 : 0) ? 0 : Math.max(0, Math.min(1, (R1 - d0) / (R1 - R0)));
+      if (f > 0) { let ws = 0; const k = top.map(([d]) => 1 / (d + .004)); k.forEach(x => (ws += x));
+        top.forEach(([, q], j) => { for (let c = 0; c < 4; c++) { const w = sW.getComponent(q, c); if (w > 0) add(idx(sb[sI.getComponent(q, c)]), f * w * k[j] / ws); } }); }
+      if (f < 1) for (let c = 0; c < 4; c++) { const w = cW.getComponent(i, c); if (w > 0) add(cI.getComponent(i, c), (1 - f) * w); }
+      const best = [...acc.entries()].sort((x, y) => y[1] - x[1]).slice(0, 4), t = best.reduce((x, e) => x + e[1], 0) || 1;
+      best.forEach(([bi, w], c) => { NI[i * 4 + c] = bi; NW[i * 4 + c] = w / t; });
+    }
+    // smoothed over the garment's own surface: neighbours that picked different body parts (arm / chest under the arm)
+    // would pull a triangle into a long shard between them; averaged out they stretch the cloth evenly instead
+    const key = i => { v.fromBufferAttribute(pos, i); return `${Math.round(v.x * 2000)},${Math.round(v.y * 2000)},${Math.round(v.z * 2000)}`; };
+    const weld = new Map(), wid = new Int32Array(n); for (let i = 0; i < n; i++) { const k = key(i); if (!weld.has(k)) weld.set(k, weld.size); wid[i] = weld.get(k); }
+    const nw = weld.size, nb = Array.from({ length: nw }, () => new Set()), ix = g.index ? g.index.array : null;
+    if (ix) for (let t = 0; t < ix.length; t += 3) for (let e = 0; e < 3; e++) { const a = wid[ix[t + e]], b = wid[ix[t + (e + 1) % 3]]; if (a !== b) { nb[a].add(b); nb[b].add(a); } }
+    const first2 = new Int32Array(nw).fill(-1); for (let i = 0; i < n; i++) if (first2[wid[i]] < 0) first2[wid[i]] = i;
+    let W = Array.from({ length: nw }, () => new Map()); const FITW = new Uint8Array(nw); for (let i = 0; i < n; i++) if (FIT[i]) FITW[wid[i]] = 1;
+    for (let i = 0; i < n; i++) { const M = W[wid[i]]; if (M.size) continue; for (let c = 0; c < 4; c++) if (NW[i * 4 + c] > 0) M.set(NI[i * 4 + c], NW[i * 4 + c]); }
+    // a skirt (a loose garment hanging off the legs, > 2.5 cm from the skin below the hips): it does not belong to one
+    // thigh or the other, or it splits up the side at every step; its leg weights are shared by both legs and the pelvis
+    if (!tight) {
+      const legs = new Map(); bones.forEach((b, k) => { const m2 = /^(upperleg|lowerleg)\d*([LR])$/.exec(b.name); if (m2) legs.set(k, m2[2]); });
+      const pel = bones.findIndex(b => b.name === "root"), hipY = this.bones.upperleg01L ? (() => { this.root.updateMatrixWorld(true); return this.bones.upperleg01L.getWorldPosition(new THREE.Vector3()).y - this.root.position.y; })() : 1;
+      if (pel >= 0) for (let a = 0; a < nw; a++) {
+        const i = first2[a]; if (i < 0 || D0[i] < .025) continue; v.fromBufferAttribute(pos, i).applyMatrix4(XF); if (v.y > hipY) continue;
+        const M = W[a]; let L = 0; for (const [b, w] of M) if (legs.has(b)) L += w; if (L < .05) continue;
+        const o = new Map(); for (const [b, w] of M) if (!legs.has(b)) o.set(b, w);
+        const pick = S => [...legs.entries()].filter(([, s2]) => s2 === S).map(([b]) => b).find(b => /upperleg01/.test(bones[b].name));
+        const bl = pick("L"), br = pick("R");
+        if (bl != null) o.set(bl, (o.get(bl) || 0) + L * .3); if (br != null) o.set(br, (o.get(br) || 0) + L * .3); o.set(pel, (o.get(pel) || 0) + L * .4);
+        W[a] = o;
+      }
+    }
+    for (let it = 0; it < 6; it++) {
+      W = W.map((M, a) => { if (!nb[a].size || (only && !FITW[a])) return M; const o = new Map(); for (const [b, w] of M) o.set(b, .5 * w); const k = .5 / nb[a].size;
+        for (const q of nb[a]) for (const [b, w] of W[q]) o.set(b, (o.get(b) || 0) + k * w); return o; });
+    }
+    // (where the cloth lies on the skin it keeps mostly the skin's own weights, so the skin cannot come through there)
+    for (let i = 0; i < n; i++) { const k = only && !FIT[i] ? 0 : Math.max(0, Math.min(1, (.025 - D0[i]) / .015)) * .8; if (k <= 0) continue; const M = new Map(); for (const [b, w] of W[wid[i]]) M.set(b, (1 - k) * w);
+      for (let c = 0; c < 4; c++) if (NW[i * 4 + c] > 0) M.set(NI[i * 4 + c], (M.get(NI[i * 4 + c]) || 0) + k * NW[i * 4 + c]); OWN[i] = M; }
+    // (copies of one point along a UV seam get one set of weights, or the seam opens into a slit)
+    const first = new Int32Array(nw).fill(-1); for (let i = 0; i < n; i++) if (first[wid[i]] < 0) first[wid[i]] = i;
+    for (let i = 0; i < n; i++) { const j = first[wid[i]], best = [...(OWN[j] || W[wid[i]]).entries()].sort((x, y) => y[1] - x[1]).slice(0, 4), t = best.reduce((x, e) => x + e[1], 0) || 1;
+      for (let c = 0; c < 4; c++) { NI[i * 4 + c] = best[c] ? best[c][0] : 0; NW[i * 4 + c] = best[c] ? best[c][1] / t : 0; } }
+    g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(NI, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(NW, 4));
+    m.bind(new THREE.Skeleton(bones, inv), m.bindMatrix);
+  }
+  _maskFrom(b64, unit = 1e-4) {
+    const body = this.parts.get("Body"), n = body.geometry.attributes.position.count, M = new Uint8Array(n); if (!b64) return M;
+    const s = atob(b64), a = new Int16Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = (s.charCodeAt(2 * i) | s.charCodeAt(2 * i + 1) << 8) << 16 >> 16;
+    const C = .004, P = this._skinPos;
+    for (let j = 0; j < a.length / 3; j++) { const x = a[j * 3] * unit, y = a[j * 3 + 1] * unit, z = a[j * 3 + 2] * unit, cx = Math.floor(x / C), cy = Math.floor(y / C), cz = Math.floor(z / C);
+      for (let i = -1; i <= 1; i++) for (let k = -1; k <= 1; k++) for (let l = -1; l <= 1; l++) for (const q of this._skinHash.get(`${cx + i},${cy + k},${cz + l}`) || [])
+        if (Math.abs(P[q * 3] - x) + Math.abs(P[q * 3 + 1] - y) + Math.abs(P[q * 3 + 2] - z) < .003) M[q] = 1; }
+    return M;
+  }
+  // the skin under what is worn is hidden: R = under clothes, G = under shoes (the skin shader discards those)
+  _updateSkinMask() {
+    const body = this.parts.get("Body"); if (!body) return; const g = body.geometry, n = g.attributes.position.count;
+    let col = g.attributes.color; if (!col) { col = new THREE.BufferAttribute(new Float32Array(n * 4).fill(1), 4); g.setAttribute("color", col); }
+    const R = new Uint8Array(n), G = new Uint8Array(n), Bc = new Uint8Array(n);
+    for (const W of Object.values(this.worn)) {
+      if (W.mask) { const T = W.channel === 1 ? G : R; for (let i = 0; i < n; i++) if (W.mask[i]) T[i] = 1; }
+      if (W.cut) for (let i = 0; i < n; i++) if (W.cut[i]) Bc[i] = 1;     // B: well inside tight cloth, cut out
+    }
+    for (let i = 0; i < n; i++) { col.setComponent(i, 0, R[i]); col.setComponent(i, 1, G[i]); col.setComponent(i, 2, Bc[i]); }
+    col.needsUpdate = true;
+  }
+  // a GLB split into base64 text parts (a manifest {bytes, parts}), for hosts that only serve text
+  async _loadParts(url, onProgress) {
+    const base = url.replace(/[^/]*$/, ""), man = await (await fetch(url)).json(), out = new Uint8Array(man.bytes); let off = 0, done = 0;
+    await Promise.all(man.parts.map(async (p, i) => { const t = await (await fetch(base + p)).text(); man.parts[i] = t; onProgress && onProgress(++done / man.parts.length * .9); }));
+    for (const t of man.parts) { const bin = atob(t); for (let i = 0; i < bin.length; i++) out[off++] = bin.charCodeAt(i); }
+    return this._L.parseAsync(out.buffer, base);
+  }
+  // put on an item (a GLB url); it replaces whatever the same slot held. Returns {ok, slot, id}
+  // { color: tint, socks: false = shoes without MakeHuman's sock (bare ankle above the shoe line; the item says where
+  // that is), sockTint: the colour of what is left of it inside the shoe }
+  async wear(url, { color, socks = true, sockTint } = {}) {
+    const g = /\.json$/.test(url) ? await this._loadParts(url) : await this._L.loadAsync(url); const meshes = []; g.scene.traverse(o => { if (o.isSkinnedMesh || o.isMesh) meshes.push(o); });
+    if (!meshes.length) return { ok: false, error: "no mesh in " + url };
+    const ex = meshes.map(m => m.userData).find(u => u.slot) || {}, slot = ex.slot || "outfit", layer = slot === "hair" ? "hair" : "clothes";
+    this.takeOff(slot, { keepBase: true });
+    const host = this.parts.get("Body").parent;
+    for (const m of meshes) {
+      if (m.isSkinnedMesh) { const bones = m.skeleton.bones.map(b => this.bones[b.name] || b); m.bind(new THREE.Skeleton(bones, m.skeleton.boneInverses), m.bindMatrix); }
+      host.add(m); m.frustumCulled = false; m.userData.part = ex.item || m.name; m.userData.layerName = layer; m.userData.ownShapes = true; m.castShadow = true;
+      if (m.material && m.material.map && m.material.transparent && !m.material.alphaTest) { m.material.alphaTest = .15; m.material.alphaToCoverage = true; m.material.side = THREE.DoubleSide; }
+      if (color && m.material) m.material.color.set(color);
+      if (slot === "outfit" && m.material) this._inflate(m.material, .002);
+      if (slot === "outfit" && !ex.prefit) this._fitCloth(m);   // (an item cut from the skin itself comes fitted)
+      if (slot === "shoes") this._fitShoe(m);
+      if (slot === "shoes" && ex.sock && m.material) this._sockShader(m.material, ex.sock, sockTint);
+      if (this.drive && this.drive.couple && slot !== "hair") this.drive.couple(m);
+      m.userData.baseMat = m.material; this.layerMeshes[layer].push(m); this.parts.set(m.userData.part, m);
+    }
+    const sockMasks = slot === "shoes" && ex.sock ? { full: this._maskFrom(ex.hides), cut: this._maskFrom(ex.sock.hides) } : null;
+    this.worn[slot] = { id: ex.item || url, meshes, mask: sockMasks ? sockMasks.full : this._maskFrom(ex.hides), sockMasks, cut: ex.cut && !meshes.some(m => m.material && m.material.transparent) ? this._maskFrom(ex.cut) : null,   // (see-through parts, tights: the skin under them stays) channel: slot === "shoes" ? 1 : 0, title: ex.title,
+      socks: !(slot === "shoes" && !socks && ex.sock), sock: ex.sock, sockTint };
+    this._updateSkinMask(); this._updateSocks(); this.setShape({}); this.applyLayers(); if (slot === "hair") this._browTint();
+    // whatever of a hairstyle hangs free swings on a spring chain (hair-spring.js); opt.hairPhysics === false: rigid
+    if (slot === "hair" && this.opt.hairPhysics !== false) { const m = meshes.find(o => o.isSkinnedMesh); if (m) try { this.root.updateMatrixWorld(true); const hs = hairSpring(this, m, this.opt.hair || {}); if (hs.ok) { hs.slot = "hair"; this.springs = (this.springs || []).filter(x => x.slot !== "hair"); this.springs.push(hs); } } catch (e) { console.warn("hair spring off:", e); } }
+    this.dispatchEvent(new CustomEvent("wardrobe", { detail: this.wardrobe() }));
+    return { ok: true, slot, id: ex.item || url, title: ex.title };
+  }
+  // take off a slot; with nothing left for "outfit" the base sports suit goes back on (the character is always dressed)
+  takeOff(slot, { keepBase = false } = {}) {
+    const W = this.worn && this.worn[slot]; if (!W) return { ok: false, error: "nothing in " + slot };
+    for (const m of W.meshes) {
+      if (W.id === "builtin") { m.userData.hidden = true; continue; }    // the model's own items stay in memory, hidden
+      if (m.userData.wrapProxy) { m.userData.wrapProxy.parent && m.userData.wrapProxy.parent.remove(m.userData.wrapProxy); this.wraps = (this.wraps || []).filter(x => x.src !== m); }
+      m.parent && m.parent.remove(m); for (const l of LAYERS) { const i = this.layerMeshes[l].indexOf(m); if (i >= 0) this.layerMeshes[l].splice(i, 1); }
+      this.parts.delete(m.userData.part); m.geometry.dispose();
+    }
+    delete this.worn[slot]; if (this.springs) this.springs = this.springs.filter(x => x.slot !== slot);
+    if (!keepBase && slot === "outfit") this._wearBuiltin("outfit");
+    this._updateSkinMask(); this._updateSocks(); this.applyLayers(); return { ok: true, slot };
+  }
+  _wearBuiltin(slot) {
+    const re = { outfit: /^Clothes_(?!Shoes)/, shoes: /^Clothes_Shoes/, hair: /^Hair$/ }[slot]; if (!re) return;
+    const meshes = [...this.layerMeshes.clothes, ...this.layerMeshes.hair].filter(m => re.test(m.name)); if (!meshes.length) return;
+    for (const m of meshes) { m.userData.hidden = false; if (slot === "outfit" && m.material) this._inflate(m.material, .002); }
+    const ch = slot === "shoes" ? 1 : 0, body = this.parts.get("Body"), col = body.geometry.attributes.color;
+    this.worn[slot] = { id: "builtin", meshes, mask: this._builtinMask && this._builtinMask[slot] || null, channel: ch };
+  }
+  wardrobe() { return Object.fromEntries(Object.entries(this.worn || {}).map(([k, W]) => [k, { id: W.id, title: W.title || null }])); }
+  // the model's ARKit face shapes (eyeBlinkLeft ... on Body, brows, lashes, teeth, tongue): name -> [[mesh, index]], or null
+  _arkitMap() {
+    if (this._ak !== undefined) return this._ak;
+    const M = {}; this.root.traverse(o => { if (o.morphTargetDictionary) for (const [n, i] of Object.entries(o.morphTargetDictionary)) if (/^(eye|jaw|mouth|brow|cheek|nose|tongue)[A-Z]/.test(n)) (M[n] = M[n] || []).push([o, i]); });
+    return (this._ak = M.eyeBlinkLeft && M.jawOpen ? M : null);
+  }
+  // a face performance (video_to_clip.py --face): {fps, names, frames}; the procedural face resumes when it ends
+  /* ---------------- motion clips (mocap, video takes, any humanoid's animations) ---------------- */
+  // load the animations of a GLB (any humanoid rig: Rocketbox/Biped, Mixamo, CC, UE, or this skeleton) and retarget
+  // them onto this body; returns the names. names: {source clip name: our name}, or a function, to rename / pick
+  async loadClips(url, { names = null, move = false } = {}) {
+    const g = await this._L.loadAsync(url); this.clips = this.clips || {}; const out = [];
+    // our own skeleton (a clip file made for this body, its nodes need not be skinned bones): no retarget
+    const own = (() => { let m = 0; g.scene.traverse(o => { if (this.bones[o.name]) m++; }); return m / Object.keys(this.bones).length > .9; })();
+    for (const c of g.animations) {
+      let t0 = Infinity, t1 = 0; for (const t of c.tracks) { t0 = Math.min(t0, t.times[0]); t1 = Math.max(t1, t.times[t.times.length - 1]); }
+      if (t0 > 1e-3 && isFinite(t0)) {                     // clips cut from a longer take keep its clock (tracks may share one times array)
+        const seen = new Set(); for (const t of c.tracks) if (!seen.has(t.times)) { seen.add(t.times); for (let i = 0; i < t.times.length; i++) t.times[i] -= t0; }
+        c.duration = t1 - t0; }
+      const nm = typeof names === "function" ? names(c.name) : names ? names[c.name] : c.name.replace(/\.max$/, ""); if (!nm) continue;
+      const clip = own ? c : retarget({ root: g.scene, clip: c }, this.root, this.bones, { move, name: nm }); clip.name = nm;
+      this.clips[nm] = clip; out.push(nm);
+    }
+    return out;
+  }
+  // play a loaded clip over the procedural pose: fades in and out, the face, breath and soft tissue stay alive;
+  // { loop, fade (s), speed, weight (0..1: how much of the clip), hold: stay on the last frame }
+  playClip(name, { loop = false, fade = .35, speed = 1, weight = 1, hold = false, idle = false } = {}) {
+    const clip = this.clips && this.clips[name]; if (!clip) return { ok: false, error: "no clip " + name + "; loaded: " + Object.keys(this.clips || {}).join(", ") };
+    this._mixer = this._mixer || new THREE.AnimationMixer(this.root);
+    const prev = this._clip; if (prev && prev.action) prev.action.stop();
+    const action = this._mixer.clipAction(clip); action.reset(); action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity); action.clampWhenFinished = true; action.timeScale = speed; action.play();
+    const bones = clip.tracks.map(t => this.bones[t.name.split(".")[0]]).filter(Boolean);
+    // from the clip that was playing the new one starts where that one stood (crossfade over `fade`)
+    if (prev && prev.w > 0) { this._xf = { bones: prev.bones, q: prev.bones.map(b => b.quaternion.clone()), t: 0, dur: Math.max(.05, fade) }; }
+    this._clip = { name, action, clip, bones, w: prev && prev.w > 0 ? 1 : 0, target: weight, weight, fade, loop, hold, idle, air: !!(clip.userData && clip.userData.air), pq: bones.map(() => new THREE.Quaternion()), pp: new THREE.Vector3() };
+    this.dispatchEvent(new CustomEvent("clip", { detail: { name, state: "start" } }));
+    return { ok: true, clip: name, seconds: +(clip.duration / speed).toFixed(2) };
+  }
+  stopClip(fade = .35) { if (this._clip) { this._clip.target = 0; this._clip.fade = fade; this._clip.hold = false; this._clip.loop = false; } return { ok: true }; }
+  clipNames() { return Object.keys(this.clips || {}); }
+  _clipLayer(dt) {
+    const C = this._clip, A = C.action, root = this.bones.root;
+    if (!C.loop && !C.hold && A.time >= C.clip.duration - C.fade * A.timeScale) C.target = 0;       // fade out at the end
+    const k = C.fade > 0 ? Math.min(1, dt / C.fade) : 1; C.w += Math.sign(C.target - C.w) * Math.min(Math.abs(C.target - C.w), k);
+    C.bones.forEach((b, i) => C.pq[i].copy(b.quaternion)); if (root) C.pp.copy(root.position);
+    this._mixer.update(dt);
+    if (C.w < 1) { C.bones.forEach((b, i) => b.quaternion.copy(C.pq[i].slerp(b.quaternion, C.w))); if (root) root.position.copy(C.pp.lerp(root.position, C.w)); }   // procedural -> clip
+    if (this._xf) { const X = this._xf; X.t += dt; const u = Math.min(1, X.t / X.dur), e = u * u * (3 - 2 * u);   // crossfade from the last clip's pose
+      X.bones.forEach((b, i) => b.quaternion.copy(X.q[i].clone().slerp(b.quaternion, e))); if (u >= 1) this._xf = null; }
+    if (C.target === 0 && C.w <= 1e-3) { A.stop(); this._clip = null; this.dispatchEvent(new CustomEvent("clip", { detail: { name: C.name, state: "end" } })); }
+  }
+  playFace(data, { loop = false, gain = 1 } = {}) { this._faceClip = data && data.frames && data.frames.length ? { d: data, t0: this.t, loop, gain, dur: data.frames.length / data.fps } : null; return { ok: !!this._faceClip }; }
   talk(seconds, text) { this._talk = seconds > 0 ? { t0: this.t, until: this.t + seconds, vis: text ? visemes(text) : null } : null; return { ok: true, seconds }; }
   // eyes follow the camera: 0 off .. 1 fully
+  // eye colour: MakeHuman's iris textures (CC0) in ./eyes/ — brown (reddish), brownlight (hazel, the default), green,
+  // bluegreen, blue, deepblue, grey, ice
+  async setEyeColor(name = "brownlight") {
+    const eyes = this.parts.get("Eyes"); if (!eyes || !eyes.material) return { ok: false, error: "no eyes" };
+    if (!/^[a-z]+$/.test(name)) return { ok: false, error: "unknown colour" };
+    try {
+      const t = await new THREE.TextureLoader().loadAsync(new URL(`./eyes/${name}.jpg`, import.meta.url).href);
+      t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      for (const m of [eyes.material, eyes.userData.baseMat]) if (m && m.map !== undefined) { const o = m.map; m.map = t; m.needsUpdate = true; if (o && o !== t) o.dispose && o.dispose(); }
+      this.eyeColor = name; return { ok: true, eyes: name };
+    } catch (e) { return { ok: false, error: "no eye colour " + name }; }
+  }
   setGaze(v) { this.gaze = Math.max(0, Math.min(1, +v || 0)); return { ok: true, gaze: this.gaze }; }
   // soft tissue on springs (models with jiggle bones, see jiggle.js): on/off and strength (1 = natural)
   setJiggle({ on, gain } = {}) { if (!this.jiggle) return { ok: false, error: "this model has no jiggle bones" };
     if (on != null) this.jiggle.on = !!on; if (gain != null && isFinite(+gain)) this.jiggle.gain = Math.max(0, Math.min(2, +gain)); return { ok: true, on: this.jiggle.on, gain: this.jiggle.gain }; }
-  snap() { if (this.jiggle) this.jiggle.reset(); for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }
+  snap() { if (this.jiggle) this.jiggle.reset(); for (const s of this.springs || []) s.reset(); for (const k of POSE_KEYS) this.pose[k] = this.target[k]; if (this.camTween) { const T = this.camTween; this.controls.target.copy(T.b.t); this.camera.position.copy(T.b.p); this.camTween = null; } if (this.root) { this._applyPose(); if (this.drive) { this.root.updateMatrixWorld(true); for (let i = 0; i < 40; i++) this.drive.update(.1); } } }
   state() { return { pose: Object.fromEntries(POSE_KEYS.map(k => [k, Math.round(this.target[k] * 10) / 10])), shape: { ...this.shape }, layers: { ...this.layerOn }, opacity: { ...this.opacity }, highlighted: [...this.hl.keys()].map(m => m.userData.part) }; }
   listParts(filter) { const out = []; for (const [n, m] of this.parts) if (!filter || m.userData.layerName === filter) out.push({ name: n, ru: ruName(n), layer: m.userData.layerName }); return out; }
 }
