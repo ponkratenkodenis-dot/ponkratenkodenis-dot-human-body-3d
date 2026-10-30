@@ -288,6 +288,7 @@ export class HumanBody extends EventTarget {
     this._initWardrobe(); this._browTint();
     if (this.opt.softTissue !== false && this.jiggle) try { this.addSoftTissueDefaults(); } catch (e) { console.warn("soft tissue off:", e); }   // thighs and belly on springs
     if (this.opt.eyeColor !== false) await this.setEyeColor(this.opt.eyeColor || "brownlight");
+    if (this.opt.eyeLook !== false) try { this.eyeLook(this.opt.eyeLook || {}); } catch (e) { console.warn("eye look off:", e); }   // wet eyes, iris under the cornea, lid shadows
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
   }
@@ -1283,6 +1284,102 @@ export class HumanBody extends EventTarget {
           " diffuseColor.rgb = mix(diffuseColor.rgb, uLip * (.55 + .9 * dot(diffuseColor.rgb, vec3(.3, .59, .11))), vLip * uLipA);\n#include <alphamap_fragment>"); };
       M.customProgramCacheKey = () => "lips|" + prevKey(); M.needsUpdate = true; }
     return { ok: true, points: L.reduce((a, x) => a + (x > .5 ? 1 : 0), 0) };
+  }
+  // the eyes' mesh: "Eyes" in the character models, MakeHuman's eye proxy ("Body.low-poly" / "high-poly") in the full one
+  _eyesPart() { return this.parts.get("Eyes") || [...this.parts.entries()].find(([k]) => /(^|\.)(low|high)-poly$/i.test(k))?.[1] || null; }
+  // living eyes. The model's eyes are a low-poly ball with a painted iris under a matte coat; here, in the eye shader:
+  // - a wet coat (clearcoat) with a smooth ball's normals, and a cornea of its own, more curved, over the iris: the
+  //   highlight and the reflection sit on it as in a real eye;
+  // - the iris lies in a plane behind the cornea: what the eye shows is where the view ray, bent at the cornea, meets
+  //   that plane (the iris shifts as the eye turns, and does not look painted on);
+  // - the pupil can open and close (body.pupil: 1 = as painted, < 1 smaller, > 1 larger);
+  // - the shadow of the lids (top most, then the corners), which stays with the head and not with the turned eye;
+  // - the white not paper white, a soft dark ring at the edge of the iris, an iris tint (a reddish texture made brown).
+  // Sizes are fractions of the ball's radius: iris .43 and pupil .14 match MakeHuman's eye textures.
+  eyeLook({ iris = .43, pupil = .14, cornea = .65, ior = 1.336, occlusion = .6, sclera = "#e4d9d2", tint = null, tintAmount = .6, limbus = .35 } = {}) {
+    const eyes = this._eyesPart(); if (!eyes || !eyes.isSkinnedMesh || !eyes.material) return { ok: false, error: "no eyes" };
+    const g = eyes.geometry, P = g.attributes.position, UV = g.attributes.uv, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight, sk = eyes.skeleton;
+    if (!UV || !SI) return { ok: false, error: "eyes without uv or skin" };
+    // one eye per bone: the bone that carries most of each point
+    const by = new Map(), v = new THREE.Vector3();
+    for (let i = 0; i < P.count; i++) { let b = SI.getX(i), w = SW.getX(i); for (const [j, c] of [[SI.getY(i), SW.getY(i)], [SI.getZ(i), SW.getZ(i)], [SI.getW(i), SW.getW(i)]]) if (c > w) { b = j; w = c; }
+      (by.get(b) || by.set(b, []).get(b)).push(i); }
+    const E = [...by.entries()].filter(([, l]) => l.length > 8).slice(0, 2).map(([b, l]) => {
+      const bone = sk.bones[b], c = new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[b].clone().invert());   // the ball's centre: its bone (bind space)
+      const pts = l.map(i => v.fromBufferAttribute(P, i).applyMatrix4(eyes.bindMatrix).clone()), a = new THREE.Vector3();
+      let R = 0; for (const p of pts) { R += p.distanceTo(c); a.add(p.clone().sub(c)); } R /= pts.length; a.normalize();   // the cap's middle is where it looks
+      // the texture over the front of the ball, as a linear map of the two directions across the eye's axis
+      const e1 = new THREE.Vector3(0, 1, 0).cross(a).normalize(), e2 = a.clone().cross(e1), S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], Bu = [0, 0, 0], Bv = [0, 0, 0];
+      l.forEach((i, k) => { const d = pts[k].clone().sub(c); if (d.clone().addScaledVector(a, -d.dot(a)).length() > .7 * R) return;
+        const x = [1, d.dot(e1), d.dot(e2)], u = UV.getX(i), w = UV.getY(i); for (let r = 0; r < 3; r++) { Bu[r] += x[r] * u; Bv[r] += x[r] * w; for (let s = 0; s < 3; s++) S[r][s] += x[r] * x[s]; } });
+      const M3 = new THREE.Matrix3().set(...S[0], ...S[1], ...S[2]); if (Math.abs(M3.determinant()) < 1e-18) return null; M3.invert();
+      const su = new THREE.Vector3(...Bu).applyMatrix3(M3), sv = new THREE.Vector3(...Bv).applyMatrix3(M3);
+      const Ju = e1.clone().multiplyScalar(su.y).addScaledVector(e2, su.z), Jv = e1.clone().multiplyScalar(sv.y).addScaledVector(e2, sv.z);
+      const head = bone.parent && sk.bones.includes(bone.parent) ? sk.bones.indexOf(bone.parent) : b;
+      return { b, head, c, a, R, Ju, Jv };
+    }).filter(Boolean);
+    if (E.length !== 2) return { ok: false, error: "eyes not found" };
+    const M = eyes.material, V3 = () => new THREE.Vector3(), two = f => [f(), f()];
+    const U = M.userData.eyeU || (M.userData.eyeU = { uEC: { value: two(V3) }, uEA: { value: two(V3) }, uEJu: { value: two(V3) }, uEJv: { value: two(V3) }, uEP: { value: two(() => new THREE.Vector4()) },
+      uEUp: { value: V3() }, uERt: { value: V3() }, uEIor: { value: 1.336 }, uEPupil: { value: 1 }, uEOcc: { value: .6 }, uESclera: { value: new THREE.Color() }, uETint: { value: new THREE.Color() }, uETintA: { value: 0 }, uELimbus: { value: .35 } });
+    U.uEIor.value = ior; U.uEOcc.value = occlusion; U.uESclera.value.set(sclera); U.uETintA.value = tint ? tintAmount : 0; if (tint) U.uETint.value.set(tint); U.uELimbus.value = limbus;
+    this.pupil = this.pupil || 1; const fr = { iris, pupil, cornea };
+    // each frame: the balls' centres, axes and texture map in the camera's space (they turn with the eye bones), the
+    // head's up and right for the lid shadows
+    const Mv = new THREE.Matrix4(), Mh = new THREE.Matrix4(), N3 = new THREE.Matrix3(), self = this;
+    const place = (m, b, cam) => m.copy(cam.matrixWorldInverse).multiply(eyes.matrixWorld).multiply(eyes.bindMatrixInverse).multiply(sk.bones[b].matrixWorld).multiply(sk.boneInverses[b]);
+    const prevBR = eyes.userData.eyePrevBR !== undefined ? eyes.userData.eyePrevBR : (eyes.userData.eyePrevBR = eyes.onBeforeRender);
+    eyes.onBeforeRender = function (r, sc, cam, ...rest) {
+      prevBR && prevBR.call(this, r, sc, cam, ...rest);
+      E.forEach((e, k) => { place(Mv, e.b, cam); const s = new THREE.Vector3().setFromMatrixColumn(Mv, 0).length();
+        U.uEC.value[k].copy(e.c).applyMatrix4(Mv); U.uEA.value[k].copy(e.a).transformDirection(Mv);
+        N3.getNormalMatrix(Mv); U.uEJu.value[k].copy(e.Ju).applyMatrix3(N3); U.uEJv.value[k].copy(e.Jv).applyMatrix3(N3);
+        U.uEP.value[k].set(e.R * s, fr.iris * e.R * s, fr.pupil * e.R * s, fr.cornea * e.R * s);
+        if (k === 0) { place(Mh, e.head, cam); U.uEUp.value.set(0, 1, 0).transformDirection(Mh); U.uERt.value.set(1, 0, 0).transformDirection(Mh); } });
+      U.uEPupil.value = Math.max(.5, Math.min(1.6, self.pupil || 1));
+    };
+    if (!M.userData.eyeHooked) { M.userData.eyeHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey ? M.customProgramCacheKey.bind(M) : () => "";
+      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U);
+        const pre = `
+  // the eye: which ball, where in it, the ball's and the cornea's normals, the iris seen through the cornea
+  vec3 eP = -vViewPosition; int eK = distance(eP, uEC[0]) < distance(eP, uEC[1]) ? 0 : 1;
+  vec3 eC = uEC[eK], eA = uEA[eK]; vec4 eR = uEP[eK];                       // R, iris, pupil, cornea radius
+  vec3 eD = eP - eC; float eZ = dot(eD, eA); vec3 eQ = eD - eA * eZ; float eRr = length(eQ);
+  vec3 eNs = normalize(eD);
+  float eZI = sqrt(max(eR.x * eR.x - eR.y * eR.y, 0.)), eRq = min(eRr, eR.y);
+  vec3 eNcor = normalize(eQ + eA * sqrt(max(eR.w * eR.w - eRq * eRq, 0.)));   // the cornea: a smaller ball through the iris's rim
+  float eWC = 1. - smoothstep(eR.y * .9, eR.y * 1.03, eRr);
+  vec3 eNc = normalize(mix(eNs, eNcor, eWC));
+  vec3 eT = refract(normalize(eP), eNcor, 1. / uEIor);
+  vec3 eHit = eD + eT * (min(eZI - eZ, 0.) / min(dot(eT, eA), -.05));
+  vec3 eQh = eHit - eA * dot(eHit, eA); float eRh = length(eQh), eS = uEPupil, eRp = eR.z;
+  float eRs = eRh < eRp * eS ? eRh / eS : (eRh < eR.y ? eRp + (eRh - eRp * eS) * (eR.y - eRp) / max(eR.y - eRp * eS, 1e-6) : eRh);
+  vec3 eDP = (eQh * (eRs / max(eRh, 1e-7)) - eQ) * eWC;
+  vec2 eDuv = vec2(dot(uEJu[eK], eDP), dot(uEJv[eK], eDP)); float eL = length(eDuv); if (eL > .08) eDuv *= .08 / eL;
+  float eRsrc = length(eQ + eDP) / eR.y;                                     // where on the painted eye, in iris radii
+  float eYh = dot(eD, uEUp) / eR.x, eXh = abs(dot(eD, uERt)) / eR.x;
+  float eOcc = clamp(1. - uEOcc * (.75 * smoothstep(-.1, .5, eYh) + .3 * (1. - smoothstep(-.55, -.25, eYh)) + .55 * smoothstep(.35, .85, eXh)), .2, 1.);
+`;
+        sh.fragmentShader = `uniform vec3 uEC[2]; uniform vec3 uEA[2]; uniform vec3 uEJu[2]; uniform vec3 uEJv[2]; uniform vec4 uEP[2];
+uniform vec3 uEUp; uniform vec3 uERt; uniform float uEIor; uniform float uEPupil; uniform float uEOcc; uniform vec3 uESclera; uniform vec3 uETint; uniform float uETintA; uniform float uELimbus;\n`
+          + sh.fragmentShader
+            .replace("#include <map_fragment>", pre + THREE.ShaderChunk.map_fragment.replace("texture2D( map, vMapUv )", "texture2D( map, vMapUv + eDuv )") + `
+  { float eIr = 1. - smoothstep(.93, 1.0, eRsrc);                           // iris (and pupil) vs the white
+    float eLum = dot(diffuseColor.rgb, vec3(.3, .59, .11));
+    diffuseColor.rgb = mix(diffuseColor.rgb, uETint * eLum / max(dot(uETint, vec3(.3, .59, .11)), 1e-3), uETintA * eIr);
+    diffuseColor.rgb *= mix(uESclera, vec3(1.), eIr);
+    float eRg = eRr / eR.y; diffuseColor.rgb *= 1. - uELimbus * smoothstep(.84, .98, eRg) * (1. - smoothstep(.98, 1.08, eRg)); }   // the ring stays thin on the ball`)
+            .replace("#include <clearcoat_normal_fragment_begin>", "#include <clearcoat_normal_fragment_begin>\n  normal = normalize(mix(eNs, eA, eWC * .7));\n#ifdef USE_CLEARCOAT\n  clearcoatNormal = eNc;\n#endif")
+            .replace("#include <aomap_fragment>", `#include <aomap_fragment>
+  reflectedLight.directDiffuse *= eOcc; reflectedLight.indirectDiffuse *= eOcc; reflectedLight.directSpecular *= eOcc; reflectedLight.indirectSpecular *= eOcc;
+#ifdef USE_CLEARCOAT
+  clearcoatSpecularDirect *= eOcc; clearcoatSpecularIndirect *= mix(.35, 1., eOcc);
+#endif`);
+      };
+      M.customProgramCacheKey = () => "eyes|" + prevKey(); }
+    // wet: a clear, sharp coat over a softer ball
+    M.clearcoat = 1; M.clearcoatRoughness = .08; M.roughness = .4; M.specularIntensity = .3; M.needsUpdate = true;
+    return { ok: true, eyes: E.length, radius: +E[0].R.toFixed(4) };
   }
   // brows the colour of the hair (the model's are near-black strips, which reads as drawn on), a little darker, and
   // soft-edged
