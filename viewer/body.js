@@ -8,6 +8,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { poreNormalMap, sssLights } from "./skin-detail.js";
+import { skinMaps, skinLook as skinLookShader } from "./skin-look.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
@@ -290,6 +291,7 @@ export class HumanBody extends EventTarget {
     if (this.opt.softTissue !== false && this.jiggle) try { this.addSoftTissueDefaults(); } catch (e) { console.warn("soft tissue off:", e); }   // thighs and belly on springs
     if (this.opt.eyeColor !== false) await this.setEyeColor(this.opt.eyeColor || "brownlight");
     if (this.opt.eyeLook !== false) try { this.eyeLook(this.opt.eyeLook || {}); } catch (e) { console.warn("eye look off:", e); }   // wet eyes, iris under the cornea, lid shadows
+    if (this.opt.skinLook !== false) try { const r = this.skinLook(this.opt.skinLook || {}); if (!r.ok) console.warn("skin look off:", r.error); } catch (e) { console.warn("skin look off:", e); }   // zones, creases, ears
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
   }
@@ -1264,19 +1266,8 @@ export class HumanBody extends EventTarget {
   // color: the tint (lipstick, or a deeper natural lip), amount 0..1. Returns how many points it took.
   lipTint(color = "#9c4a4e", amount = .55, { lo = .0003, hi = .0014 } = {}) {      // lo..hi: how far (m) the shapes move a point
     const skin = this.parts.get("Body"), M = this.skinMat; if (!skin || !M) return { ok: false, error: "no skin" };
-    const g = skin.geometry, D = skin.morphTargetDictionary || {}, ma = g.morphAttributes.position || [], P = g.attributes.position, n = P.count, rel = g.morphTargetsRelative;
-    const ks = ["mouthRollUpper", "mouthRollLower"].map(k => D[k]).filter(i => i != null && ma[i]); if (!ks.length) return { ok: false, error: "no lip shapes" };
-    let L = g.attributes.aLip ? g.attributes.aLip.array : null;
-    if (!L) { L = new Float32Array(n); const W = ks.map(k => { const w = new Float32Array(n);
-        for (let i = 0; i < n; i++) { let x = ma[k].getX(i), y = ma[k].getY(i), z = ma[k].getZ(i); if (!rel) { x -= P.getX(i); y -= P.getY(i); z -= P.getZ(i); } w[i] = THREE.MathUtils.smoothstep(Math.hypot(x, y, z), lo, hi); } return w; });
-      // the lower-lip roll drags the skin under the lip too: the lower lip stops 7-11 mm under the line where the lips
-      // meet (the bottom of the upper lip)
-      const Y = new Float32Array(n), v = new THREE.Vector3(); for (let i = 0; i < n; i++) Y[i] = v.fromBufferAttribute(P, i).applyMatrix4(skin.bindMatrix).y;
-      const up = D.mouthRollUpper != null ? W[ks.indexOf(D.mouthRollUpper)] : null; let line = null;
-      if (up) { line = Infinity; for (let i = 0; i < n; i++) if (up[i] > .5 && Y[i] < line) line = Y[i]; if (!isFinite(line)) line = null; }
-      ks.forEach((k, j) => { const w = W[j], low = k === D.mouthRollLower && line != null;
-        for (let i = 0; i < n; i++) { const f = low ? THREE.MathUtils.smoothstep(Y[i], line - .011, line - .007) : 1; L[i] = Math.max(L[i], w[i] * f); } });
-      g.setAttribute("aLip", new THREE.BufferAttribute(L, 1)); }
+    const g = skin.geometry; let L = g.attributes.aLip ? g.attributes.aLip.array : null;
+    if (!L) { L = this._lipMask({ lo, hi }); if (!L) return { ok: false, error: "no lip shapes" }; g.setAttribute("aLip", new THREE.BufferAttribute(L, 1)); }
     const U = M.userData.lipU || (M.userData.lipU = { uLip: { value: new THREE.Color() }, uLipA: { value: 0 } }); U.uLip.value.set(color); U.uLipA.value = amount;
     if (!M.userData.lipHooked) { M.userData.lipHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey ? M.customProgramCacheKey.bind(M) : () => "";
       M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U);
@@ -1285,6 +1276,31 @@ export class HumanBody extends EventTarget {
           " diffuseColor.rgb = mix(diffuseColor.rgb, uLip * (.55 + .9 * dot(diffuseColor.rgb, vec3(.3, .59, .11))), vLip * uLipA);\n#include <alphamap_fragment>"); };
       M.customProgramCacheKey = () => "lips|" + prevKey(); M.needsUpdate = true; }
     return { ok: true, points: L.reduce((a, x) => a + (x > .5 ? 1 : 0), 0) };
+  }
+  // where the lips are, 0..1 per point of the skin (null without the lip-roll shapes): see lipTint
+  _lipMask({ lo = .0003, hi = .0014 } = {}) {
+    const skin = this.parts.get("Body"), key = lo + "," + hi; if (!skin) return null; if (this._lipM && this._lipM.key === key) return this._lipM;
+    const g = skin.geometry, D = skin.morphTargetDictionary || {}, ma = g.morphAttributes.position || [], P = g.attributes.position, n = P.count, rel = g.morphTargetsRelative;
+    const ks = ["mouthRollUpper", "mouthRollLower"].map(k => D[k]).filter(i => i != null && ma[i]); if (!ks.length) return null;
+    const L = new Float32Array(n), W = ks.map(k => { const w = new Float32Array(n);
+      for (let i = 0; i < n; i++) { let x = ma[k].getX(i), y = ma[k].getY(i), z = ma[k].getZ(i); if (!rel) { x -= P.getX(i); y -= P.getY(i); z -= P.getZ(i); } w[i] = THREE.MathUtils.smoothstep(Math.hypot(x, y, z), lo, hi); } return w; });
+    // the lower-lip roll drags the skin under the lip too: the lower lip stops 7-11 mm under the line where the lips
+    // meet (the bottom of the upper lip)
+    const Y = new Float32Array(n), v = new THREE.Vector3(); for (let i = 0; i < n; i++) Y[i] = v.fromBufferAttribute(P, i).applyMatrix4(skin.bindMatrix).y;
+    const up = D.mouthRollUpper != null ? W[ks.indexOf(D.mouthRollUpper)] : null; let line = null;
+    if (up) { line = Infinity; for (let i = 0; i < n; i++) if (up[i] > .5 && Y[i] < line) line = Y[i]; if (!isFinite(line)) line = null; }
+    ks.forEach((k, j) => { const w = W[j], low = k === D.mouthRollLower && line != null;
+      for (let i = 0; i < n; i++) { const f = low ? THREE.MathUtils.smoothstep(Y[i], line - .011, line - .007) : 1; L[i] = Math.max(L[i], w[i] * f); } });
+    L.key = key; return (this._lipM = L);
+  }
+  // skin that differs over the face and body (skin-look.js): oilier forehead, nose and chin, drier cheeks, glossy lips,
+  // shadowed creases, red light through the ears from behind. opt: see skinLook in skin-look.js; returns the zones' sizes
+  skinLook(opt = {}) {
+    const skin = this.parts.get("Body"), M = this.skinMat; if (!skin || !M) return { ok: false, error: "no skin" };
+    if (!skin.geometry.attributes.aSkin) { const sk = skin.skeleton, at = b => { const i = b && sk ? sk.bones.indexOf(b) : -1; return i < 0 ? null : new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[i].clone().invert()); };
+      const eL = at(this.bones.eyeL), eR = at(this.bones.eyeR);
+      this.skinZones = skinMaps(skin, { eyes: eL && eR ? [eL, eR] : null, head: at(this.bones.head), lip: this._lipMask() }); }
+    skinLookShader(M, opt); return { ok: true, ...this.skinZones };
   }
   // the way hair is combed where its texture does not say: back from the face, and down (world), for hair-look.js
   _hairBack() {
