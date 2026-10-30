@@ -13,6 +13,7 @@ import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
 import { Jiggle } from "./jiggle.js";
 import { hairSpring, dangleSpring } from "./hair-spring.js";
+import { hairLook } from "./hair-look.js";
 import { SkinWrap } from "./skin-wrap.js";
 import { retarget } from "./retarget.js";
 
@@ -1285,6 +1286,13 @@ export class HumanBody extends EventTarget {
       M.customProgramCacheKey = () => "lips|" + prevKey(); M.needsUpdate = true; }
     return { ok: true, points: L.reduce((a, x) => a + (x > .5 ? 1 : 0), 0) };
   }
+  // the way hair is combed where its texture does not say: back from the face, and down (world), for hair-look.js
+  _hairBack() {
+    const v = this._hb || (this._hb = new THREE.Vector3()), h = this.bones.head, eL = this.bones.eyeL, eR = this.bones.eyeR;
+    if (h && eL && eR) { const a = h.getWorldPosition(new THREE.Vector3()), m = eL.getWorldPosition(new THREE.Vector3()).add(eR.getWorldPosition(new THREE.Vector3())).multiplyScalar(.5); v.copy(a).sub(m); }
+    else v.set(0, 0, -1).transformDirection(this.root.matrixWorld);
+    return v.normalize().add(new THREE.Vector3(0, -.6, 0)).normalize();
+  }
   // the eyes' mesh: "Eyes" in the character models, MakeHuman's eye proxy ("Body.low-poly" / "high-poly") in the full one
   _eyesPart() { return this.parts.get("Eyes") || [...this.parts.entries()].find(([k]) => /(^|\.)(low|high)-poly$/i.test(k))?.[1] || null; }
   // living eyes. The model's eyes are a low-poly ball with a painted iris under a matte coat; here, in the eye shader:
@@ -1545,6 +1553,8 @@ uniform vec3 uEUp; uniform vec3 uERt; uniform float uEIor; uniform float uEPupil
     this.worn[slot] = { id: ex.item || url, meshes, mask: sockMasks ? sockMasks.full : this._maskFrom(ex.hides), sockMasks, cut: ex.cut && !meshes.some(m => m.material && m.material.transparent) ? this._maskFrom(ex.cut) : null,   // (see-through parts, tights: the skin under them stays) channel: slot === "shoes" ? 1 : 0, title: ex.title,
       socks: !(slot === "shoes" && !socks && ex.sock), sock: ex.sock, sockTint };
     this._updateSkinMask(); this._updateSocks(); this.setShape({}); this.applyLayers(); if (slot === "hair") this._browTint();
+    // hair lit along its strands (hair-look.js); opt.hairLook === false: as the item comes, or an object of its settings
+    if (slot === "hair" && this.opt.hairLook !== false) for (const m of meshes) if (m.material && m.material.map) try { const r = hairLook(m, { combed: () => this._hairBack(), ...(this.opt.hairLook || {}) }); if (!r.ok) console.warn("hair look off:", r.error); } catch (e) { console.warn("hair look off:", e); }
     // whatever of a hairstyle hangs free swings on a spring chain (hair-spring.js); opt.hairPhysics === false: rigid
     if (slot === "hair" && this.opt.hairPhysics !== false) { const m = meshes.find(o => o.isSkinnedMesh); if (m) try { this.root.updateMatrixWorld(true); const hs = hairSpring(this, m, this.opt.hair || {}); if (hs.ok) { hs.slot = "hair"; this.springs = (this.springs || []).filter(x => x.slot !== "hair"); this.springs.push(hs); } } catch (e) { console.warn("hair spring off:", e); } }
     this.dispatchEvent(new CustomEvent("wardrobe", { detail: this.wardrobe() }));
