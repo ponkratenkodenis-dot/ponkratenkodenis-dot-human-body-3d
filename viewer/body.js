@@ -9,6 +9,7 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { poreNormalMap, sssLights } from "./skin-detail.js";
 import { skinMaps, skinLook as skinLookShader, wrinkleDriver } from "./skin-look.js";
+import { skyEnvironment, bakeAO, aoShader, ensureAO } from "./light-look.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
@@ -1302,6 +1303,24 @@ export class HumanBody extends EventTarget {
       this.skinZones = skinMaps(skin, { eyes: eL && eR ? [eL, eR] : null, head: at(this.bones.head), lip: this._lipMask() }); }
     const U = skinLookShader(M, opt); if (!skin.userData.wrinkles) skin.userData.wrinkles = wrinkleDriver(skin, U);
     return { ok: true, ...this.skinZones, wrinkles: skin.userData.wrinkles };
+  }
+  // ambient occlusion of the skin and the clothes (light-look.js), from the character as it is dressed and shaped now
+  // (call again after a change of clothes or of shape): less light from all round under the chin, under the bust, in
+  // the ears, between the legs, in the clothes' folds. Occluders: skin, clothes, eyes, hair (half: cards with gaps).
+  // opt: cell, rays, dist, strength (bakeAO), direct, specular (aoShader); returns per mesh {points, mean, dark}, ms
+  ambientOcclusion(opt = {}) {
+    const small = /Eyebrows|Eyelashes|Teeth|Tongue|glasses|hoops|_wrap$/i, occ = [], tgt = [], soft = [];
+    this.root.traverse(o => { if (!o.isMesh || !o.geometry || small.test(o.name) || o.userData.hidden) return; const L = o.userData.layerName;
+      if (o.name === "Body" || L === "clothes") { occ.push(o); tgt.push(o); } else if (L === "hair") { occ.push(o); soft.push(o); } else if (o.name === "Eyes") occ.push(o); });
+    const st = bakeAO(occ, tgt, { ...opt, soft });
+    for (const m of tgt) for (const M of Array.isArray(m.material) ? m.material : [m.material]) if (M) aoShader(M, opt);
+    st.filled = ensureAO(this.scene); return (this.aoStats = st);
+  }
+  // the reflections and the light from all round from a sky made for the scene (light-look.js) in place of the
+  // studio room: opt zenith, horizon, ground (colours), sunDir (toward the sun), sunColor, glow, intensity
+  setSky(opt = {}) {
+    const t = skyEnvironment(this.renderer, opt), old = this.scene.environment; this.scene.environment = t;
+    if (old && old.userData && old.userData.sky) old.dispose(); t.userData.sky = true; return t;
   }
   // the way hair is combed where its texture does not say: back from the face, and down (world), for hair-look.js
   _hairBack() {

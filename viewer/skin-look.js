@@ -11,7 +11,28 @@ import * as THREE from "three";
 const sm = THREE.MathUtils.smoothstep;
 const band = (x, a, b, c, e) => sm(x, a, b) * (1 - sm(x, c, e));            // 0 below a, 1 over b..c, 0 past e
 
-// per point of the skin: aSkin = (forehead+chin, nose, cheeks, lips), aSkin2 = (fold, thin)
+// light under the skin, pre-integrated (Penner): how much light a point of skin gives back for a light at angle theta,
+// on a surface of curvature 1/r, when light spreads under the skin by its diffusion profile (d'Eon and Luebke's sum of
+// six gaussians for skin, variances in mm^2, weights for red, green, blue). Red spreads furthest: on a nose, an ear, a
+// finger the shadow's edge is soft and red; on a cheek or a back it stays near plain diffuse. A table of
+// cos(theta) * .5 + .5 (x) by curvature / kMax (y), made once
+const PROFILE = [[.0064, .233, .455, .649], [.0484, .1, .336, .344], [.187, .118, .198, 0], [.567, .113, .007, .007], [1.99, .358, .004, 0], [7.41, .078, 0, 0]];
+let LUT = null;
+export function skinLut(kMax = .5, NX = 64, NY = 32, S = 192) {
+  if (LUT && LUT.userData.kMax === kMax) return LUT;
+  const d = new Uint16Array(NX * NY * 4), H = THREE.DataUtils.toHalfFloat;
+  for (let j = 0; j < NY; j++) { const k = j / (NY - 1) * kMax, r = k > 0 ? 1 / k : 0;
+    for (let i = 0; i < NX; i++) { const c = 2 * i / (NX - 1) - 1, th = Math.acos(c), o = (j * NX + i) * 4; let out = [Math.max(c, 0), Math.max(c, 0), Math.max(c, 0)];
+      if (r > 0) { const num = [0, 0, 0], den = [0, 0, 0];
+        for (let s = 0; s < S; s++) { const x = -Math.PI + (s + .5) / S * 2 * Math.PI, dist = 2 * r * Math.abs(Math.sin(x / 2)), cl = Math.max(0, Math.cos(th + x));
+          for (const [v, wr, wg, wb] of PROFILE) { const g = Math.exp(-dist * dist / (2 * v)) / v; num[0] += cl * wr * g; num[1] += cl * wg * g; num[2] += cl * wb * g; den[0] += wr * g; den[1] += wg * g; den[2] += wb * g; } }
+        out = num.map((a, q) => a / Math.max(den[q], 1e-12)); }
+      d[o] = H(out[0]); d[o + 1] = H(out[1]); d[o + 2] = H(out[2]); d[o + 3] = H(1); } }
+  LUT = new THREE.DataTexture(d, NX, NY, THREE.RGBAFormat, THREE.HalfFloatType); LUT.magFilter = LUT.minFilter = THREE.LinearFilter; LUT.wrapS = LUT.wrapT = THREE.ClampToEdgeWrapping;
+  LUT.colorSpace = THREE.NoColorSpace; LUT.userData.kMax = kMax; LUT.needsUpdate = true; return LUT;
+}
+
+// per point of the skin: aSkin = (forehead+chin, nose, cheeks, lips), aSkin2 = (fold, thin, curvature in 1/mm)
 export function skinMaps(mesh, { eyes, head, lip = null, foldLo = .03, foldHi = .16, thinLo = .004, thinHi = .012 } = {}) {
   const g = mesh.geometry, P = g.attributes.position, N = g.attributes.normal, n = P.count, B = mesh.bindMatrix, NM = new THREE.Matrix3().getNormalMatrix(B);
   const X = new Float32Array(n * 3), Nn = new Float32Array(n * 3), v = new THREE.Vector3();
@@ -60,6 +81,14 @@ export function skinMaps(mesh, { eyes, head, lip = null, foldLo = .03, foldHi = 
     C[j] = (cx * QN[j * 3] + cy * QN[j * 3 + 1] + cz * QN[j * 3 + 2]) / el; }
   for (let it = 0; it < 2; it++) { const D = new Float32Array(m); for (let j = 0; j < m; j++) { let s = C[j] * 2, w = 2; for (const k of nb[j]) { s += C[k]; w++; } D[j] = s / w; } C = D; }
 
+  // ---- curvature (1/mm) for the light under the skin: from each neighbour, 2 d.n / |d|^2 (a sphere of radius r gives
+  // 1/r); bulges count fully, hollows half (light spreads in a crease too, less visibly); smoothed over two rings
+  let K = new Float32Array(m);
+  for (let j = 0; j < m; j++) { const s = nb[j]; if (!s.size) continue; let k = 0;
+    for (const q of s) { const dx = Q[j * 3] - Q[q * 3], dy = Q[j * 3 + 1] - Q[q * 3 + 1], dz = Q[j * 3 + 2] - Q[q * 3 + 2], l2 = dx * dx + dy * dy + dz * dz; if (l2 > 1e-12) k += 2 * (dx * QN[j * 3] + dy * QN[j * 3 + 1] + dz * QN[j * 3 + 2]) / l2; }
+    k /= s.size * 1000; K[j] = k > 0 ? k : -.5 * k; }
+  for (let it = 0; it < 2; it++) { const D = new Float32Array(m); for (let j = 0; j < m; j++) { let s = K[j] * 2, w = 2; for (const k of nb[j]) { s += K[k]; w++; } D[j] = s / w; } K = D; }
+
   // ---- thin: the nearest skin facing the other way, behind the point along its normal (a grid of 1.5 cm cells)
   const cs = thinHi * 1.25, grid = new Map(), ck = (a, b, e) => ((a + 512) * 1024 + (b + 512)) * 1024 + (e + 512), cell = (x, y, z) => ck(Math.floor(x / cs), Math.floor(y / cs), Math.floor(z / cs));
   for (let j = 0; j < m; j++) { const k = cell(Q[j * 3], Q[j * 3 + 1], Q[j * 3 + 2]); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(j); }
@@ -73,32 +102,44 @@ export function skinMaps(mesh, { eyes, head, lip = null, foldLo = .03, foldHi = 
     T[j] = 1 - sm(best, thinLo, thinHi); }
   { const D = new Float32Array(m); for (let j = 0; j < m; j++) { let s = T[j] * 2, w = 2; for (const k of nb[j]) { s += T[k]; w++; } D[j] = s / w; } T.set(D); }
 
-  const Z2 = new Float32Array(n * 2), st = { forehead: 0, nose: 0, cheeks: 0, lips: 0, folds: 0, thin: 0 };
+  const Z2 = new Float32Array(n * 3), st = { forehead: 0, nose: 0, cheeks: 0, lips: 0, folds: 0, thin: 0 };
   { const s = Array.from(C).sort((a, b) => a - b), q = p => +s[Math.floor(p * (s.length - 1))].toFixed(3); st.foldQ = [q(.5), q(.8), q(.9), q(.95), q(.98), q(.995)]; }
-  for (let i = 0; i < n; i++) { const j = W[i]; Z2[i * 2] = sm(C[j], foldLo, foldHi); Z2[i * 2 + 1] = T[j] * (1 - face[i]);
-    if (Z[i * 4] > .5) st.forehead++; if (Z[i * 4 + 1] > .5) st.nose++; if (Z[i * 4 + 2] > .5) st.cheeks++; if (Z[i * 4 + 3] > .5) st.lips++; if (Z2[i * 2] > .5) st.folds++; if (Z2[i * 2 + 1] > .5) st.thin++; }
-  g.setAttribute("aSkin", new THREE.BufferAttribute(Z, 4)); g.setAttribute("aSkin2", new THREE.BufferAttribute(Z2, 2)); g.setAttribute("aFace", new THREE.BufferAttribute(F, 3));
+  { const s = Array.from(K).sort((a, b) => a - b), q = p => +s[Math.floor(p * (s.length - 1))].toFixed(3); st.curvQ = [q(.1), q(.5), q(.9), q(.98)]; }
+  for (let i = 0; i < n; i++) { const j = W[i]; Z2[i * 3] = sm(C[j], foldLo, foldHi); Z2[i * 3 + 1] = T[j] * (1 - face[i]); Z2[i * 3 + 2] = K[j];
+    if (Z[i * 4] > .5) st.forehead++; if (Z[i * 4 + 1] > .5) st.nose++; if (Z[i * 4 + 2] > .5) st.cheeks++; if (Z[i * 4 + 3] > .5) st.lips++; if (Z2[i * 3] > .5) st.folds++; if (Z2[i * 3 + 1] > .5) st.thin++; }
+  g.setAttribute("aSkin", new THREE.BufferAttribute(Z, 4)); g.setAttribute("aSkin2", new THREE.BufferAttribute(Z2, 3)); g.setAttribute("aFace", new THREE.BufferAttribute(F, 3));
   return st;
 }
 
 // the skin shader's part: rough = (forehead+chin, nose, cheeks, lips) roughness, pores = the pores' depth there (1 =
 // as elsewhere), spec = the highlight's strength there (1 = as elsewhere), fold = (sky, highlight, sun) taken away
 // in the deepest creases, thin = how much light comes through, thinColor its colour
-export function skinLook(mat, { rough = [.38, .33, .54, .3], pores = [1.1, 1.8, 1.45, .2], spec = [1.35, 1.5, .9, 1.6], fold = [.5, .75, .2], thin = .5, thinColor = "#ff4a2a", wrinkles = 1, wrinkleDepth = .0005, debug = 0 } = {}) {
+// sss = the share of the pre-integrated light under the skin against skin-detail.js's even wrap (the wrap is far
+// wider than skin's few millimetres: warm, but waxy alone; the table alone is true to the profile, which on a face's
+// centimetre radii is a narrow red edge), curvGain scales the curvature (= widens the profile that many times: the mesh
+// is smoothed and has no fine relief), curvMin is curvature every point has at least, shadowSoft how far red reaches
+// into a shadow's edge
+export function skinLook(mat, { rough = [.38, .33, .54, .3], pores = [1.1, 1.8, 1.45, .2], spec = [1.35, 1.5, .9, 1.6], fold = [.5, .75, .2], thin = .5, thinColor = "#ff4a2a", wrinkles = 1, wrinkleDepth = .0005,
+  sss = .6, curvGain = 3, curvMin = .02, shadowSoft = 1, kMax = .5, debug = 0 } = {}) {
   const U = mat.userData.skinU || (mat.userData.skinU = { uSkR: { value: new THREE.Vector4() }, uSkP: { value: new THREE.Vector4() }, uSkS: { value: new THREE.Vector4() },
-    uSkF: { value: new THREE.Vector3() }, uSkT: { value: new THREE.Color() }, uSkDbg: { value: 0 }, uWrA: { value: 0 },
+    uSkF: { value: new THREE.Vector3() }, uSkT: { value: new THREE.Color() }, uSkDbg: { value: 0 }, uWrA: { value: 0 }, uSkC: { value: new THREE.Vector4() }, uSkLut: { value: null },
     uWF: { value: new THREE.Vector3() }, uWD: { value: new THREE.Vector2() }, uWS: { value: new THREE.Vector2() }, uWN: { value: new THREE.Vector2() }, uWM: { value: new THREE.Vector2() } });
   U.uSkR.value.fromArray(rough); U.uSkP.value.fromArray(pores); U.uSkS.value.fromArray(spec); U.uSkF.value.fromArray(fold); U.uSkT.value.set(thinColor).multiplyScalar(thin); U.uSkDbg.value = debug; U.uWrA.value = wrinkles * wrinkleDepth;
+  U.uSkLut.value = skinLut(kMax); U.uSkC.value.set(curvGain / kMax, curvMin / kMax, sss, shadowSoft);
   if (mat.userData.skinHooked) return U; mat.userData.skinHooked = true;
   const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => "";
   const nfm = THREE.ShaderChunk.normal_fragment_maps.replace("mapN.xy *= normalScale;", "{ float zs = dot(vSkin, vec4(1.)); mapN.xy *= normalScale * mix(1., dot(uSkP, vSkin) / max(zs, 1e-4), min(1., zs)); }");
   const lfb = THREE.ShaderChunk.lights_fragment_begin.replace(/(get(?:Point|Spot|Directional)LightInfo\([^;]*\);)/g, "$1 skLc = directLight.color;");
   mat.onBeforeCompile = (sh, r) => { prev && prev.call(mat, sh, r); Object.assign(sh.uniforms, U);
-    sh.vertexShader = "attribute vec4 aSkin; attribute vec2 aSkin2; attribute vec3 aFace; varying vec4 vSkin; varying vec2 vSkin2; varying vec3 vFace;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n vSkin = aSkin; vSkin2 = aSkin2; vFace = aFace;");
-    let f = "uniform vec4 uSkR; uniform vec4 uSkP; uniform vec4 uSkS; uniform vec3 uSkF; uniform vec3 uSkT; uniform float uSkDbg; varying vec4 vSkin; varying vec2 vSkin2; vec3 skLc = vec3(0.);\n" + WRINKLES + sh.fragmentShader;
+    sh.vertexShader = "attribute vec4 aSkin; attribute vec3 aSkin2; attribute vec3 aFace; varying vec4 vSkin; varying vec3 vSkin2; varying vec3 vFace;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n vSkin = aSkin; vSkin2 = aSkin2; vFace = aFace;");
+    let f = "uniform vec4 uSkR; uniform vec4 uSkP; uniform vec4 uSkS; uniform vec3 uSkF; uniform vec3 uSkT; uniform float uSkDbg; varying vec4 vSkin; varying vec3 vSkin2; vec3 skLc = vec3(0.);\n" + WRINKLES + PREINT + sh.fragmentShader;
     // roughness by zone; pores by zone (the weights add up past one only where zones meet, so they are normalised)
     f = f.replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n { float zw = min(1., dot(vSkin, vec4(1.))); roughnessFactor = mix(roughnessFactor, dot(uSkR, vSkin) / max(dot(vSkin, vec4(1.)), 1e-4), zw); }");
-    f = f.replace("#include <normal_fragment_maps>", nfm + WRINKLE_NORMAL);
+    f = f.replace("#include <normal_fragment_maps>", " skNg = normal;\n" + nfm + WRINKLE_NORMAL);
+    // the direct light's diffuse: pre-integrated by curvature, red from a smoother normal than blue, red reaching into
+    // the shadow's edge (in place of skin-detail.js's even wrap)
+    f = f.replace(/vec3 wr = clamp\( \( vec3\( nlw \) \+ W \) \/ \( 1\.0 \+ W \), 0\.0, 1\.0 \); reflectedLight\.directDiffuse \+= wr \* directLight\.color \* BRDF_Lambert\( material\.diffuseColor \);/,
+      "vec3 wr = skPreint( geometryNormal, directLight.direction, W, nlw ); reflectedLight.directDiffuse += wr * skShadow( directLight.color ) * BRDF_Lambert( material.diffuseColor );");
     // the highlight: brighter where oily, weaker in the creases
     f = f.replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n { float zs = dot(vSkin, vec4(1.)); float k = mix(1., dot(uSkS, vSkin) / max(zs, 1e-4), min(1., zs)) * (1. - uSkF.y * vSkin2.x);\n material.specularColor *= k * (1. - .6 * skWr); material.specularF90 = min(1., material.specularF90 * k); }");
     // light through the thin parts, from behind: the light as it is before the shadow (the ear's own other side
@@ -110,7 +151,7 @@ export function skinLook(mat, { rough = [.38, .33, .54, .3], pores = [1.1, 1.8, 
       reflectedLight.directDiffuse += vSkin2.y * skLc * uSkT * material.diffuseColor * bk * (.15 + 1.2 * vt); }`);
     // the creases: less sky, less reflection, a little less sun
     f = f.replace("#include <aomap_fragment>", "#include <aomap_fragment>\n { float cv = max(vSkin2.x, skWr * .7); reflectedLight.indirectDiffuse *= 1. - uSkF.x * cv; reflectedLight.indirectSpecular *= 1. - uSkF.y * cv; reflectedLight.directDiffuse *= 1. - uSkF.z * cv; }");
-    f = f.replace("#include <dithering_fragment>", "#include <dithering_fragment>\n if (uSkDbg > .5) { gl_FragColor.rgb = uSkDbg < 1.5 ? vec3(vSkin.x + vSkin.w, vSkin.y + vSkin.w * .3, vSkin.z + vSkin.w) : uSkDbg < 2.5 ? vec3(1. - max(vSkin2.x, skWr)) : vec3(vSkin2.y, 0., 0.) + .1; }");
+    f = f.replace("#include <dithering_fragment>", "#include <dithering_fragment>\n if (uSkDbg > .5) { gl_FragColor.rgb = uSkDbg < 1.5 ? vec3(vSkin.x + vSkin.w, vSkin.y + vSkin.w * .3, vSkin.z + vSkin.w) : uSkDbg < 2.5 ? vec3(1. - max(vSkin2.x, skWr)) : uSkDbg < 3.5 ? vec3(vSkin2.y, 0., 0.) + .1 : vec3(clamp(vSkin2.z * uSkC.x + uSkC.y, 0., 1.)); }");
     sh.fragmentShader = f; };
   mat.customProgramCacheKey = () => "skinlook|" + prevKey(); mat.needsUpdate = true;
   return U;
@@ -147,6 +188,26 @@ float skWrinkles(vec2 f) {
   float sm = mix(uWM.y, uWM.x, sd);
   w += sm * .8 * exp(-pow(wSeg(vec2(au, v), vec2(.3, -.8), vec2(.62, -1.6)) / .045, 2.));
   return min(w, 1.5);
+}
+`;
+// the light under the skin for one light (see skinLut): N the normal with pores and wrinkles, skNg the mesh's own
+const PREINT = `uniform sampler2D uSkLut; uniform vec4 uSkC; vec3 skNg = vec3(0., 0., 1.);
+vec3 skPreint(vec3 N, vec3 L, vec3 W, float nlw) {
+  vec3 wrap = clamp((vec3(nlw) + W) / (1. + W), 0., 1.);
+  if (uSkC.z <= 0.) return wrap;
+  float cu = clamp(vSkin2.z * uSkC.x + uSkC.y, 0., 1.);
+  vec3 Nr = normalize(mix(N, skNg, .85)), Ng = normalize(mix(N, skNg, .45));
+  vec3 d = vec3(dot(Nr, L), dot(Ng, L), dot(N, L)) * .5 + .5;
+  vec3 p = vec3(texture(uSkLut, vec2(d.r, cu)).r, texture(uSkLut, vec2(d.g, cu)).g, texture(uSkLut, vec2(d.b, cu)).b);
+  return mix(wrap, p, uSkC.z);
+}
+// the shadow seen through the skin: lit fraction s (the light after the shadow over the light before it), red rising
+// sooner at the edge, blue later
+vec3 skShadow(vec3 lit) {
+  float s = dot(lit, vec3(1.)) / max(dot(skLc, vec3(1.)), 1e-5);
+  if (s >= .999 || uSkC.w <= 0.) return lit;
+  vec3 sc = vec3(smoothstep(0., .55, s), smoothstep(.04, .8, s), smoothstep(.08, .95, s));
+  return skLc * mix(vec3(s), sc, uSkC.w * uSkC.z);
 }
 `;
 const WRINKLE_NORMAL = `
