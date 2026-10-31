@@ -10,6 +10,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { poreNormalMap, sssLights } from "./skin-detail.js";
 import { skinMaps, skinLook as skinLookShader, wrinkleDriver } from "./skin-look.js";
 import { skyEnvironment, bakeAO, aoShader, ensureAO } from "./light-look.js";
+import { mouthLook } from "./mouth-look.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
@@ -912,7 +913,7 @@ export class HumanBody extends EventTarget {
     if (AK) {                                                                         // a character with an ARKit face: its own shapes
       const set = (n, w) => { for (const [m, i] of AK[n] || []) m.morphTargetInfluences[i] = THREE.MathUtils.clamp(w, 0, 1); };
       const W = { jawOpen: (P.jawOpen + tk * 11) / 17, mouthFunnel: round * .55, mouthPucker: round * .45, browInnerUp: bu, browOuterUpLeft: bu * .8, browOuterUpRight: bu * .8,
-        browDownLeft: bd, browDownRight: bd, mouthFrownLeft: dn, mouthFrownRight: dn, mouthSmileLeft: up * .9, mouthSmileRight: up * .85, cheekSquintLeft: up * .5, cheekSquintRight: up * .45,
+        browDownLeft: bd, browDownRight: bd, mouthFrownLeft: dn, mouthFrownRight: dn, mouthSmileLeft: up * .9, mouthSmileRight: up * .85, cheekSquintLeft: up * .5, cheekSquintRight: up * .45, mouthUpperUpLeft: up * .3, mouthUpperUpRight: up * .3,
         eyeSquintLeft: up * .2, eyeSquintRight: up * .2 };
       for (const [S, side] of [["L", "Left"], ["R", "Right"]]) W["eyeBlink" + side] = Math.max(0, Math.min(1, P["blink" + S] + auto - (this.eyeOpen || 0)));
       const FC = this._faceClip;                                                      // a performance from video (ARKit curves) overrides
@@ -952,6 +953,7 @@ export class HumanBody extends EventTarget {
       if (this.onPose) { this.root.updateMatrixWorld(true); this.onPose(raw); }   // a procedural layer over the pose (avatar-ik.js: hands on the table)
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
       if (this.jiggle) { if (!this.drive) this.root.updateMatrixWorld(true); this.jiggle.update(raw); }
+      if (this.mouth) this.mouth.update();                                                // the light into the mouth through the lips' gap now
       if (this.springs && this.springs.length) { if (!this.jiggle && !this.drive) this.root.updateMatrixWorld(true); for (const s of this.springs) s.update(raw); }   // hair on spring chains
       if (this.wraps && this.wraps.length) { this.root.updateMatrixWorld(true); for (const w of this.wraps) w.update(); }   // clothes laid on the deformed skin (skin-wrap.js)
       this._paintSpine(); this._props();
@@ -1316,6 +1318,13 @@ export class HumanBody extends EventTarget {
     const st = bakeAO(occ, tgt, { ...opt, soft });
     for (const m of tgt) for (const M of Array.isArray(m.material) ? m.material : [m.material]) if (M) aoShader(M, opt);
     st.filled = ensureAO(this.scene); return (this.aoStats = st);
+  }
+  // the inside of the mouth in shadow (mouth-look.js): teeth, tongue and the mouth's lining take light only through
+  // the lips' gap, measured each frame from the face's shapes. A character with an ARKit face. opt: floor, soft,
+  // amount (0 turns it off; setAmount on the result). Returns { ok, stats: { inside, teeth, gap, width } }
+  mouthCavity(opt = {}) {
+    if (this.mouth) { if (opt.amount != null) this.mouth.setAmount(opt.amount); return { ok: true, stats: this.mouth.stats }; }
+    const r = mouthLook(this, opt); if (r.ok) this.mouth = r; return r.ok ? { ok: true, stats: r.stats } : r;
   }
   // the reflections and the light from all round from a sky made for the scene (light-look.js) in place of the
   // studio room: opt zenith, horizon, ground (colours), sunDir (toward the sun), sunColor, glow, intensity
