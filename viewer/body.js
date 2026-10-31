@@ -668,7 +668,7 @@ export class HumanBody extends EventTarget {
       if (m.userData.wrapProxy) { m.userData.wrapShown = m.visible; m.visible = false; }   // (a wrapped garment shows its proxy instead)
       if (this.hl && this.hl.has(m)) { m.renderOrder = 20; continue; }
       const a = (this.opacity[l] == null ? 1 : this.opacity[l]) * (m.userData.alphaK || 1), mat = m.material;
-      const tr = a < .999; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6; m.renderOrder = { skeleton: 1, organs: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
+      const tr = a < .999 || !!m.userData.blend; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6 && !m.userData.blend; m.renderOrder = { skeleton: 1, organs: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
     }
     for (const n of ["Eyes", "Eyebrows", "Eyelashes", "Teeth", "Tongue"]) { const m = this.parts.get(n); if (m) m.visible = this.layerOn.skin && this.opacity.skin > .5; }
     if (this.skinMat) { const u = this.skinMat.userData.u; u.uHideCloth.value = this.layerOn.clothes ? 1 : 0; u.uHideShoes.value = this.layerOn.clothes ? 1 : 0; }
@@ -1423,11 +1423,55 @@ uniform vec3 uEUp; uniform vec3 uERt; uniform float uEIor; uniform float uEPupil
       for (const q of P) { const k = key(q), b = bins.get(k) || { y: 0, z: 0, n: 0 }; b.y += q.y; b.z += q.z; b.n++; bins.set(k, b); }
       for (let i = 0; i < p.count; i++) { const q = P[i], b = bins.get(key(q)), my = b.y / b.n; q.y = my + (q.y - my) * .7 + .0015; q.applyMatrix4(inv); p.setXYZ(i, q.x, q.y, q.z); }
       p.needsUpdate = true; brow.geometry.computeBoundingSphere();
+      try { this.browFollow = this._browFollow(brow); } catch (e) { console.warn("brow follow off:", e); }
     }
+    // blended, not cut by alpha: the texture's hairs and soft edge stay (cut, the brow read as a solid painted strip);
+    // the alpha with more contrast (the faint fringe read as grey fog over the skin; the hairs stay dense), and faded toward
+    // the nose, unevenly with the hairs, so the inner end is not a straight edge
+    // (inner end: the brow at x > 0 uses the upper texture brow, its inner end at small u; the other one at large u)
+    brow.userData.blend = true; brow.renderOrder = 3;
     const M = brow.material, U = M.userData.browU || (M.userData.browU = { uBrow: { value: col } }); U.uBrow.value = col;
-    if (!M.userData.browHooked) { M.userData.browHooked = true; const prev = M.onBeforeCompile;
-      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U); sh.fragmentShader = "uniform vec3 uBrow;\n" + sh.fragmentShader.replace("#include <map_fragment>", "#include <map_fragment>\n diffuseColor.rgb = mix(uBrow, diffuseColor.rgb, .08);"); };
-      M.alphaToCoverage = true; M.needsUpdate = true; }
+    if (!M.userData.browHooked) { M.userData.browHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey;
+      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U); sh.fragmentShader = "uniform vec3 uBrow;\n" + sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
+ diffuseColor.rgb = mix(uBrow, diffuseColor.rgb, .08);
+ #ifdef USE_MAP
+  float bIn = vMapUv.y < .54 ? vMapUv.x : 1. - vMapUv.x;
+  diffuseColor.a = smoothstep(.06, .5, diffuseColor.a) * smoothstep(.03, .2, bIn + .05 * (diffuseColor.a - .5));
+ #endif`); };
+      M.customProgramCacheKey = () => "browlook|" + (prevKey ? prevKey.call(M) : "");
+      M.alphaToCoverage = false; M.alphaTest = .02; M.transparent = true; M.depthWrite = false; M.needsUpdate = true; }
+  }
+  // the brows ride on the skin: each brow point takes the face shapes' movement of the skin under it (the model's own brow
+  // shapes move up to 1.7 mm less than the skin, so in a frown the skin came through the brow), and sits at least .4 mm
+  // over the skin (bind space; inverse-distance weights over the 6 nearest skin points)
+  _browFollow(brow) {
+    const body = this.parts.get("Body"), DB = body && body.morphTargetDictionary, D = brow.morphTargetDictionary;
+    if (!DB || !D || !body.geometry.morphAttributes.position) return null;
+    const g = brow.geometry, p = g.attributes.position, bp = body.geometry.attributes.position, SN = this._skinNormals(), v = new THREE.Vector3();
+    const Q = [], lo = new THREE.Vector3(1e9, 1e9, 1e9), hi = new THREE.Vector3(-1e9, -1e9, -1e9);
+    for (let i = 0; i < p.count; i++) { const q = v.fromBufferAttribute(p, i).applyMatrix4(brow.bindMatrix).clone(); Q.push(q); lo.min(q); hi.max(q); }
+    lo.subScalar(.015); hi.addScalar(.015);
+    const C = [], CP = []; for (let j = 0; j < bp.count; j++) { v.fromBufferAttribute(bp, j).applyMatrix4(body.bindMatrix);
+      if (v.x > lo.x && v.x < hi.x && v.y > lo.y && v.y < hi.y && v.z > lo.z && v.z < hi.z) { C.push(j); CP.push(v.clone()); } }
+    if (!C.length) return null;
+    const K = 6, NB = Q.map(q => { const d = CP.map((c, k) => [q.distanceToSquared(c), k]).sort((a, b) => a[0] - b[0]).slice(0, K);
+      const w = d.map(([e]) => 1 / (e + 1e-10)), s = w.reduce((a, b) => a + b, 0); return d.map(([, k], n) => [C[k], w[n] / s]); });
+    // sit over the skin
+    const lift = .0004, toB = brow.bindMatrixInverse, n = new THREE.Vector3(), sp = new THREE.Vector3(); let lifted = 0, hMin = 1;
+    Q.forEach((q, i) => { sp.set(0, 0, 0); n.set(0, 0, 0);
+      for (const [j, w] of NB[i]) { sp.addScaledVector(v.fromBufferAttribute(bp, j).applyMatrix4(body.bindMatrix), w); n.x += SN[j * 3] * w; n.y += SN[j * 3 + 1] * w; n.z += SN[j * 3 + 2] * w; }
+      n.normalize(); const h = q.clone().sub(sp).dot(n); hMin = Math.min(hMin, h);
+      if (h < lift) { q.addScaledVector(n, lift - h); lifted++; const r = q.clone().applyMatrix4(toB); p.setXYZ(i, r.x, r.y, r.z); } });
+    if (lifted) { p.needsUpdate = true; g.computeBoundingSphere(); }
+    // the face shapes: the skin's movement under each brow point
+    const fromS = new THREE.Matrix3().setFromMatrix4(body.bindMatrix), toL = new THREE.Matrix3().setFromMatrix4(toB), BM = body.geometry.morphAttributes.position, d = new THREE.Vector3();
+    let moved = 0, err = 0;
+    for (const [name, ib] of Object.entries(D)) { const is = DB[name]; if (is == null || !BM[is] || !g.morphAttributes.position[ib]) continue;
+      const A = g.morphAttributes.position[ib], S = BM[is];
+      for (let i = 0; i < p.count; i++) { d.set(0, 0, 0); for (const [j, w] of NB[i]) { d.x += S.getX(j) * w; d.y += S.getY(j) * w; d.z += S.getZ(j) * w; }
+        d.applyMatrix3(fromS).applyMatrix3(toL); err = Math.max(err, Math.hypot(d.x - A.getX(i), d.y - A.getY(i), d.z - A.getZ(i))); A.setXYZ(i, d.x, d.y, d.z); }
+      A.needsUpdate = true; moved++; }
+    return { shapes: moved, lifted, hMin: +(hMin * 1000).toFixed(2), fixedMax: +(err * 1000).toFixed(2) };
   }
   _skinNormals() {
     if (this._sN) return this._sN; const body = this.parts.get("Body"), sn = body.geometry.attributes.normal, NB = new THREE.Matrix3().getNormalMatrix(body.bindMatrix), v = new THREE.Vector3();
