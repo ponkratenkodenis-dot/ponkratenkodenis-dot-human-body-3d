@@ -11,6 +11,7 @@ import { poreNormalMap, sssLights } from "./skin-detail.js";
 import { skinMaps, skinLook as skinLookShader, wrinkleDriver } from "./skin-look.js";
 import { skyEnvironment, bakeAO, aoShader, ensureAO } from "./light-look.js";
 import { mouthLook } from "./mouth-look.js";
+import { lidLashes } from "./lid-lashes.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
@@ -953,6 +954,7 @@ export class HumanBody extends EventTarget {
       if (this.onPose) { this.root.updateMatrixWorld(true); this.onPose(raw); }   // a procedural layer over the pose (avatar-ik.js: hands on the table)
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
       if (this.jiggle) { if (!this.drive) this.root.updateMatrixWorld(true); this.jiggle.update(raw); }
+      if (this.lashes) this.lashes.update();                                              // the lashes turned with the lids' edges
       if (this.mouth) this.mouth.update();                                                // the light into the mouth through the lips' gap now
       if (this.springs && this.springs.length) { if (!this.jiggle && !this.drive) this.root.updateMatrixWorld(true); for (const s of this.springs) s.update(raw); }   // hair on spring chains
       if (this.wraps && this.wraps.length) { this.root.updateMatrixWorld(true); for (const w of this.wraps) w.update(); }   // clothes laid on the deformed skin (skin-wrap.js)
@@ -1325,6 +1327,14 @@ export class HumanBody extends EventTarget {
   mouthCavity(opt = {}) {
     if (this.mouth) { if (opt.amount != null) this.mouth.setAmount(opt.amount); return { ok: true, stats: this.mouth.stats }; }
     const r = mouthLook(this, opt); if (r.ok) this.mouth = r; return r.ok ? { ok: true, stats: r.stats } : r;
+  }
+  // lashes that go with the eyelids (lid-lashes.js): each frame every lash turns with its stretch of the lid's edge
+  // about the eye's centre, so a closing eye's lashes hang down from the lid instead of being drawn out over it (the
+  // model's own lash shapes move the roots and not the tips). A character with an ARKit face and "Eyelashes".
+  // Returns { ok, stats: { edge (the lids' edges' points per eye), lashes } }
+  lashFollow() {
+    if (this.lashes) return { ok: true, stats: this.lashes.stats };
+    const r = lidLashes(this); if (r.ok) this.lashes = r; return r.ok ? { ok: true, stats: r.stats } : r;
   }
   // the reflections and the light from all round from a sky made for the scene (light-look.js) in place of the
   // studio room: opt zenith, horizon, ground (colours), sunDir (toward the sun), sunColor, glow, intensity
