@@ -25,7 +25,7 @@ export function skyEnvironment(renderer, { zenith = "#7fa6d6", horizon = "#f3dcc
 // shape and face morphs as they are now). The occluders are drawn into a grid of cells (1 cm); from each target point
 // rays go out over its hemisphere (cosine-weighted) and count what they meet within dist, nearer counting more.
 // aAO (1 = open, 0 = closed in) is set on each target; returns stats
-function bindData(m) {
+export function bindData(m) {
   const g = m.geometry, P = g.attributes.position, N = g.attributes.normal, n = P.count, X = new Float32Array(n * 3), Nn = new Float32Array(n * 3);
   const MP = g.morphAttributes.position || [], MN = g.morphAttributes.normal || [], I = m.morphTargetInfluences || [], rel = g.morphTargetsRelative;
   const act = []; for (let k = 0; k < I.length; k++) if (I[k] && MP[k]) act.push(k);

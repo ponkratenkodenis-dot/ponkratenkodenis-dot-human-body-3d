@@ -16,6 +16,7 @@ import { setLinearSkinning } from "./dq-skinning.js";
 import { Jiggle } from "./jiggle.js";
 import { hairSpring, dangleSpring } from "./hair-spring.js";
 import { hairLook } from "./hair-look.js";
+import { hairStrands } from "./hair-strands.js";
 import { SkinWrap } from "./skin-wrap.js";
 import { retarget } from "./retarget.js";
 
@@ -1637,8 +1638,23 @@ uniform vec3 uEUp; uniform vec3 uERt; uniform float uEIor; uniform float uEPupil
     if (slot === "hair" && this.opt.hairLook !== false) for (const m of meshes) if (m.material && m.material.map) try { const r = hairLook(m, { combed: () => this._hairBack(), ...(this.opt.hairLook || {}) }); if (!r.ok) console.warn("hair look off:", r.error); } catch (e) { console.warn("hair look off:", e); }
     // whatever of a hairstyle hangs free swings on a spring chain (hair-spring.js); opt.hairPhysics === false: rigid
     if (slot === "hair" && this.opt.hairPhysics !== false) { const m = meshes.find(o => o.isSkinnedMesh); if (m) try { this.root.updateMatrixWorld(true); const hs = hairSpring(this, m, this.opt.hair || {}); if (hs.ok) { hs.slot = "hair"; this.springs = (this.springs || []).filter(x => x.slot !== "hair"); this.springs.push(hs); } } catch (e) { console.warn("hair spring off:", e); } }
+    // the hanging part and the scalp redrawn as strands (hair-strands.js), along the chain above; opt.hairStrands: true or its settings
+    if (slot === "hair" && this.opt.hairStrands) { const m = meshes.find(o => o.isSkinnedMesh), hs = (this.springs || []).find(x => x.slot === "hair");
+      if (m && hs) try { const r = hairStrands(this, m, hs, this.opt.hairStrands === true ? {} : this.opt.hairStrands);
+        if (r.ok) { for (const x of [r.mesh, r.tie]) if (x) { x.userData.part = x.name; x.userData.layerName = "hair"; this.layerMeshes.hair.push(x); this.worn.hair.meshes.push(x); } this.strands = r.stats; this.applyLayers(); }
+        else console.warn("hair strands off:", r.error); } catch (e) { console.warn("hair strands off:", e); } }
     this.dispatchEvent(new CustomEvent("wardrobe", { detail: this.wardrobe() }));
     return { ok: true, slot, id: ex.item || url, title: ex.title };
+  }
+  // the hair's strands (hair-strands.js) off, the model's own tail cards and shell back (a cheaper frame), or on again
+  setStrands(on) {
+    const W = this.worn && this.worn.hair, m = W && W.meshes.find(x => x.userData.strandsIndex1), S = W ? W.meshes.filter(x => /_(strands|tie)$/.test(x.name)) : [];
+    if (!m || !S.length) return false; on = !!on; if (m.userData.strandsOn === on) return on; m.userData.strandsOn = on;
+    for (const x of S) x.userData.hidden = !on;
+    m.geometry.setIndex(on ? m.userData.strandsIndex1 : m.userData.strandsIndex0);
+    const HU = m.material.userData.hairU, [cut, flat] = m.userData.strandsShell || [];
+    if (HU) { if (cut != null && m.userData.strandsCut0 != null) HU.uHEdge.value.y = on ? cut : m.userData.strandsCut0; if (HU.uHFlat) HU.uHFlat.value = on ? flat || 0 : 0; }
+    this.applyLayers(); return on;
   }
   // take off a slot; with nothing left for "outfit" the base sports suit goes back on (the character is always dressed)
   takeOff(slot, { keepBase = false } = {}) {

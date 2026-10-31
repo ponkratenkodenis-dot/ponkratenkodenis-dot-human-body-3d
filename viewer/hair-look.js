@@ -46,16 +46,16 @@ export function strandFlowMap(image, size = 512) {
 // opt: spec (white highlight), spec2 (coloured one), shift / shift2 (toward root / tip, along the normal), shine / shine2
 // (sharpness), wrap (light through the hair), back (glow against the light), edge (how much the cut-out follows the
 // strands), cut (where it cuts), flow (a direction texture made beforehand, instead of reading it off the texture),
-// soft: a blended, soft edge instead of a cut one; combed: () => a world vector, the way the hair is combed where the texture does not say (the back of the head)
-export function hairLook(mesh, { spec = .1, spec2 = .35, shift = -.03, shift2 = .05, shine = 100, shine2 = 30, wrap = .35, back = .25, edge = 2.2, cut = .32, flow = null, combed = null, soft = true, debug = 0 } = {}) {
+// soft: a blended, soft edge instead of a cut one; flat: how much the painted light and shade is evened out to the hair's average colour; combed: () => a world vector, the way the hair is combed where the texture does not say (the back of the head)
+export function hairLook(mesh, { spec = .1, spec2 = .35, shift = -.03, shift2 = .05, shine = 100, shine2 = 30, wrap = .35, back = .25, edge = 2.2, cut = .32, flow = null, combed = null, soft = true, flat = 0, debug = 0 } = {}) {
   const M = mesh && mesh.material; if (!M || !M.map || !M.map.image) return { ok: false, error: "no hair texture" };
   let F = flow; try { F = F || M.userData.hairFlow || strandFlowMap(M.map.image); } catch (e) { return { ok: false, error: "texture not readable: " + e.message }; }
   M.userData.hairFlow = F;
-  const U = M.userData.hairU || (M.userData.hairU = { uHFlow: { value: F }, uHSpec: { value: new THREE.Vector4() }, uHShine: { value: new THREE.Vector2() }, uHWrap: { value: new THREE.Vector2() }, uHEdge: { value: new THREE.Vector2() }, uHBack: { value: new THREE.Vector3(0, -1, 0) }, uHDbg: { value: 0 } });
-  U.uHFlow.value = F; U.uHSpec.value.set(spec, spec2, shift, shift2); U.uHShine.value.set(shine, shine2); U.uHWrap.value.set(wrap, back); U.uHEdge.value.set(edge, cut); U.uHDbg.value = debug;
+  const U = M.userData.hairU || (M.userData.hairU = { uHFlow: { value: F }, uHSpec: { value: new THREE.Vector4() }, uHShine: { value: new THREE.Vector2() }, uHWrap: { value: new THREE.Vector2() }, uHEdge: { value: new THREE.Vector2() }, uHBack: { value: new THREE.Vector3(0, -1, 0) }, uHDbg: { value: 0 }, uHFlat: { value: 0 } });
+  U.uHFlow.value = F; U.uHSpec.value.set(spec, spec2, shift, shift2); U.uHShine.value.set(shine, shine2); U.uHWrap.value.set(wrap, back); U.uHEdge.value.set(edge, cut); U.uHDbg.value = debug; U.uHFlat.value = flat;
   if (!M.userData.hairHooked) { M.userData.hairHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey ? M.customProgramCacheKey.bind(M) : () => "";
     M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U);
-      sh.fragmentShader = "uniform sampler2D uHFlow; uniform vec4 uHSpec; uniform vec2 uHShine; uniform vec2 uHWrap; uniform vec2 uHEdge; uniform vec3 uHBack; uniform int uHDbg;\n" + sh.fragmentShader
+      sh.fragmentShader = "uniform sampler2D uHFlow; uniform vec4 uHSpec; uniform vec2 uHShine; uniform vec2 uHWrap; uniform vec2 uHEdge; uniform vec3 uHBack; uniform int uHDbg; uniform float uHFlat;\n" + sh.fragmentShader
         .replace("#include <lights_physical_pars_fragment>", `#include <lights_physical_pars_fragment>
 vec3 hairT = vec3(0., 1., 0.); float hairJit = 0., hairGlint = 1.; vec3 hairCol = vec3(1.);
 void RE_Direct_Hair( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
@@ -80,7 +80,8 @@ void RE_Direct_Hair( const in IncidentLight directLight, const in vec3 geometryP
   { // strand detail: the texture against a blurred copy of itself (its smaller mip)
     float hl = dot(diffuseColor.rgb, vec3(.3, .59, .11)), hb = dot(texture2D(map, vMapUv, 3.).rgb * diffuse, vec3(.3, .59, .11));
     hairJit = clamp((hl - hb) * 5., -.3, .3); hairCol = clamp(texture2D(map, vMapUv, 8.).rgb * diffuse * 1.5 + .02, 0., 1.);   // (the hair's overall colour: the painted lighter ends would step from lock to lock)
-    hairGlint = .25 + 1.5 * smoothstep(-.04, .06, (hl - hb) / max(hb, .05));   // (the painted strands catch the light, the gaps between them do not)
+    hairGlint = .25 + 1.5 * smoothstep(-.04, .06, (hl - hb) / max(hb, .05));
+    diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(map, vMapUv, 8.).rgb * diffuse, uHFlat);   // (painted light and shade evened out: under hair-strands.js only the base colour is wanted)   // (the painted strands catch the light, the gaps between them do not)
     // the cut-out along the strands: thin hair at the edge ends strand by strand
     float ha = diffuseColor.a; diffuseColor.a = smoothstep(uHEdge.y - .3, uHEdge.y + .35, ha + (hl - hb) / max(hb, .05) * uHEdge.x * ha * (1. - ha) * 4.); }`)
         .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
