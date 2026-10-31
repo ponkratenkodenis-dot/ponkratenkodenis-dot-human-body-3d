@@ -8,11 +8,15 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { poreNormalMap, sssLights } from "./skin-detail.js";
+import { skinMaps, skinLook as skinLookShader, wrinkleDriver } from "./skin-look.js";
+import { skyEnvironment, bakeAO, aoShader, ensureAO } from "./light-look.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
 import { Jiggle } from "./jiggle.js";
 import { hairSpring, dangleSpring } from "./hair-spring.js";
+import { hairLook } from "./hair-look.js";
+import { hairStrands } from "./hair-strands.js";
 import { SkinWrap } from "./skin-wrap.js";
 import { retarget } from "./retarget.js";
 
@@ -288,6 +292,8 @@ export class HumanBody extends EventTarget {
     this._initWardrobe(); this._browTint();
     if (this.opt.softTissue !== false && this.jiggle) try { this.addSoftTissueDefaults(); } catch (e) { console.warn("soft tissue off:", e); }   // thighs and belly on springs
     if (this.opt.eyeColor !== false) await this.setEyeColor(this.opt.eyeColor || "brownlight");
+    if (this.opt.eyeLook !== false) try { this.eyeLook(this.opt.eyeLook || {}); } catch (e) { console.warn("eye look off:", e); }   // wet eyes, iris under the cornea, lid shadows
+    if (this.opt.skinLook !== false) try { const r = this.skinLook(this.opt.skinLook || {}); if (!r.ok) console.warn("skin look off:", r.error); } catch (e) { console.warn("skin look off:", e); }   // zones, creases, ears
     this.applyLayers(); this.dispatchEvent(new Event("ready"));
     return this;
   }
@@ -664,7 +670,7 @@ export class HumanBody extends EventTarget {
       if (m.userData.wrapProxy) { m.userData.wrapShown = m.visible; m.visible = false; }   // (a wrapped garment shows its proxy instead)
       if (this.hl && this.hl.has(m)) { m.renderOrder = 20; continue; }
       const a = (this.opacity[l] == null ? 1 : this.opacity[l]) * (m.userData.alphaK || 1), mat = m.material;
-      const tr = a < .999; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6; m.renderOrder = { skeleton: 1, organs: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
+      const tr = a < .999 || !!m.userData.blend; if (mat.transparent !== tr) { mat.transparent = tr; mat.needsUpdate = true; } mat.opacity = a; mat.depthWrite = a > .6 && !m.userData.blend; m.renderOrder = { skeleton: 1, organs: 1, muscles: 2, skin: 3, clothes: 4, hair: 4 }[l];
     }
     for (const n of ["Eyes", "Eyebrows", "Eyelashes", "Teeth", "Tongue"]) { const m = this.parts.get(n); if (m) m.visible = this.layerOn.skin && this.opacity.skin > .5; }
     if (this.skinMat) { const u = this.skinMat.userData.u; u.uHideCloth.value = this.layerOn.clothes ? 1 : 0; u.uHideShoes.value = this.layerOn.clothes ? 1 : 0; }
@@ -1262,19 +1268,8 @@ export class HumanBody extends EventTarget {
   // color: the tint (lipstick, or a deeper natural lip), amount 0..1. Returns how many points it took.
   lipTint(color = "#9c4a4e", amount = .55, { lo = .0003, hi = .0014 } = {}) {      // lo..hi: how far (m) the shapes move a point
     const skin = this.parts.get("Body"), M = this.skinMat; if (!skin || !M) return { ok: false, error: "no skin" };
-    const g = skin.geometry, D = skin.morphTargetDictionary || {}, ma = g.morphAttributes.position || [], P = g.attributes.position, n = P.count, rel = g.morphTargetsRelative;
-    const ks = ["mouthRollUpper", "mouthRollLower"].map(k => D[k]).filter(i => i != null && ma[i]); if (!ks.length) return { ok: false, error: "no lip shapes" };
-    let L = g.attributes.aLip ? g.attributes.aLip.array : null;
-    if (!L) { L = new Float32Array(n); const W = ks.map(k => { const w = new Float32Array(n);
-        for (let i = 0; i < n; i++) { let x = ma[k].getX(i), y = ma[k].getY(i), z = ma[k].getZ(i); if (!rel) { x -= P.getX(i); y -= P.getY(i); z -= P.getZ(i); } w[i] = THREE.MathUtils.smoothstep(Math.hypot(x, y, z), lo, hi); } return w; });
-      // the lower-lip roll drags the skin under the lip too: the lower lip stops 7-11 mm under the line where the lips
-      // meet (the bottom of the upper lip)
-      const Y = new Float32Array(n), v = new THREE.Vector3(); for (let i = 0; i < n; i++) Y[i] = v.fromBufferAttribute(P, i).applyMatrix4(skin.bindMatrix).y;
-      const up = D.mouthRollUpper != null ? W[ks.indexOf(D.mouthRollUpper)] : null; let line = null;
-      if (up) { line = Infinity; for (let i = 0; i < n; i++) if (up[i] > .5 && Y[i] < line) line = Y[i]; if (!isFinite(line)) line = null; }
-      ks.forEach((k, j) => { const w = W[j], low = k === D.mouthRollLower && line != null;
-        for (let i = 0; i < n; i++) { const f = low ? THREE.MathUtils.smoothstep(Y[i], line - .011, line - .007) : 1; L[i] = Math.max(L[i], w[i] * f); } });
-      g.setAttribute("aLip", new THREE.BufferAttribute(L, 1)); }
+    const g = skin.geometry; let L = g.attributes.aLip ? g.attributes.aLip.array : null;
+    if (!L) { L = this._lipMask({ lo, hi }); if (!L) return { ok: false, error: "no lip shapes" }; g.setAttribute("aLip", new THREE.BufferAttribute(L, 1)); }
     const U = M.userData.lipU || (M.userData.lipU = { uLip: { value: new THREE.Color() }, uLipA: { value: 0 } }); U.uLip.value.set(color); U.uLipA.value = amount;
     if (!M.userData.lipHooked) { M.userData.lipHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey ? M.customProgramCacheKey.bind(M) : () => "";
       M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U);
@@ -1283,6 +1278,153 @@ export class HumanBody extends EventTarget {
           " diffuseColor.rgb = mix(diffuseColor.rgb, uLip * (.55 + .9 * dot(diffuseColor.rgb, vec3(.3, .59, .11))), vLip * uLipA);\n#include <alphamap_fragment>"); };
       M.customProgramCacheKey = () => "lips|" + prevKey(); M.needsUpdate = true; }
     return { ok: true, points: L.reduce((a, x) => a + (x > .5 ? 1 : 0), 0) };
+  }
+  // where the lips are, 0..1 per point of the skin (null without the lip-roll shapes): see lipTint
+  _lipMask({ lo = .0003, hi = .0014 } = {}) {
+    const skin = this.parts.get("Body"), key = lo + "," + hi; if (!skin) return null; if (this._lipM && this._lipM.key === key) return this._lipM;
+    const g = skin.geometry, D = skin.morphTargetDictionary || {}, ma = g.morphAttributes.position || [], P = g.attributes.position, n = P.count, rel = g.morphTargetsRelative;
+    const ks = ["mouthRollUpper", "mouthRollLower"].map(k => D[k]).filter(i => i != null && ma[i]); if (!ks.length) return null;
+    const L = new Float32Array(n), W = ks.map(k => { const w = new Float32Array(n);
+      for (let i = 0; i < n; i++) { let x = ma[k].getX(i), y = ma[k].getY(i), z = ma[k].getZ(i); if (!rel) { x -= P.getX(i); y -= P.getY(i); z -= P.getZ(i); } w[i] = THREE.MathUtils.smoothstep(Math.hypot(x, y, z), lo, hi); } return w; });
+    // the lower-lip roll drags the skin under the lip too: the lower lip stops 7-11 mm under the line where the lips
+    // meet (the bottom of the upper lip)
+    const Y = new Float32Array(n), v = new THREE.Vector3(); for (let i = 0; i < n; i++) Y[i] = v.fromBufferAttribute(P, i).applyMatrix4(skin.bindMatrix).y;
+    const up = D.mouthRollUpper != null ? W[ks.indexOf(D.mouthRollUpper)] : null; let line = null;
+    if (up) { line = Infinity; for (let i = 0; i < n; i++) if (up[i] > .5 && Y[i] < line) line = Y[i]; if (!isFinite(line)) line = null; }
+    ks.forEach((k, j) => { const w = W[j], low = k === D.mouthRollLower && line != null;
+      for (let i = 0; i < n; i++) { const f = low ? THREE.MathUtils.smoothstep(Y[i], line - .011, line - .007) : 1; L[i] = Math.max(L[i], w[i] * f); } });
+    L.key = key; return (this._lipM = L);
+  }
+  // skin that differs over the face and body (skin-look.js): oilier forehead, nose and chin, drier cheeks, glossy lips,
+  // shadowed creases, red light through the ears from behind. opt: see skinLook in skin-look.js; returns the zones' sizes
+  skinLook(opt = {}) {
+    const skin = this.parts.get("Body"), M = this.skinMat; if (!skin || !M) return { ok: false, error: "no skin" };
+    if (!skin.geometry.attributes.aSkin) { const sk = skin.skeleton, at = b => { const i = b && sk ? sk.bones.indexOf(b) : -1; return i < 0 ? null : new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[i].clone().invert()); };
+      const eL = at(this.bones.eyeL), eR = at(this.bones.eyeR);
+      this.skinZones = skinMaps(skin, { eyes: eL && eR ? [eL, eR] : null, head: at(this.bones.head), lip: this._lipMask() }); }
+    const U = skinLookShader(M, opt); if (!skin.userData.wrinkles) skin.userData.wrinkles = wrinkleDriver(skin, U);
+    return { ok: true, ...this.skinZones, wrinkles: skin.userData.wrinkles };
+  }
+  // ambient occlusion of the skin and the clothes (light-look.js), from the character as it is dressed and shaped now
+  // (call again after a change of clothes or of shape): less light from all round under the chin, under the bust, in
+  // the ears, between the legs, in the clothes' folds. Occluders: skin, clothes, eyes, hair (half: cards with gaps).
+  // opt: cell, rays, dist, strength (bakeAO), direct, specular (aoShader); returns per mesh {points, mean, dark}, ms
+  ambientOcclusion(opt = {}) {
+    const small = /Eyebrows|Eyelashes|Teeth|Tongue|glasses|hoops|_wrap$/i, occ = [], tgt = [], soft = [];
+    this.root.traverse(o => { if (!o.isMesh || !o.geometry || small.test(o.name) || o.userData.hidden) return; const L = o.userData.layerName;
+      if (o.name === "Body" || L === "clothes") { occ.push(o); tgt.push(o); } else if (L === "hair") { occ.push(o); soft.push(o); } else if (o.name === "Eyes") occ.push(o); });
+    const st = bakeAO(occ, tgt, { ...opt, soft });
+    for (const m of tgt) for (const M of Array.isArray(m.material) ? m.material : [m.material]) if (M) aoShader(M, opt);
+    st.filled = ensureAO(this.scene); return (this.aoStats = st);
+  }
+  // the reflections and the light from all round from a sky made for the scene (light-look.js) in place of the
+  // studio room: opt zenith, horizon, ground (colours), sunDir (toward the sun), sunColor, glow, intensity
+  setSky(opt = {}) {
+    const t = skyEnvironment(this.renderer, opt), old = this.scene.environment; this.scene.environment = t;
+    if (old && old.userData && old.userData.sky) old.dispose(); t.userData.sky = true; return t;
+  }
+  // the way hair is combed where its texture does not say: back from the face, and down (world), for hair-look.js
+  _hairBack() {
+    const v = this._hb || (this._hb = new THREE.Vector3()), h = this.bones.head, eL = this.bones.eyeL, eR = this.bones.eyeR;
+    if (h && eL && eR) { const a = h.getWorldPosition(new THREE.Vector3()), m = eL.getWorldPosition(new THREE.Vector3()).add(eR.getWorldPosition(new THREE.Vector3())).multiplyScalar(.5); v.copy(a).sub(m); }
+    else v.set(0, 0, -1).transformDirection(this.root.matrixWorld);
+    return v.normalize().add(new THREE.Vector3(0, -.6, 0)).normalize();
+  }
+  // the eyes' mesh: "Eyes" in the character models, MakeHuman's eye proxy ("Body.low-poly" / "high-poly") in the full one
+  _eyesPart() { return this.parts.get("Eyes") || [...this.parts.entries()].find(([k]) => /(^|\.)(low|high)-poly$/i.test(k))?.[1] || null; }
+  // living eyes. The model's eyes are a low-poly ball with a painted iris under a matte coat; here, in the eye shader:
+  // - a wet coat (clearcoat) with a smooth ball's normals, and a cornea of its own, more curved, over the iris: the
+  //   highlight and the reflection sit on it as in a real eye;
+  // - the iris lies in a plane behind the cornea: what the eye shows is where the view ray, bent at the cornea, meets
+  //   that plane (the iris shifts as the eye turns, and does not look painted on);
+  // - the pupil can open and close (body.pupil: 1 = as painted, < 1 smaller, > 1 larger);
+  // - the shadow of the lids (top most, then the corners), which stays with the head and not with the turned eye;
+  // - the white not paper white, a soft dark ring at the edge of the iris, an iris tint (a reddish texture made brown).
+  // Sizes are fractions of the ball's radius: iris .43 and pupil .14 match MakeHuman's eye textures.
+  eyeLook({ iris = .43, pupil = .14, cornea = .65, ior = 1.336, occlusion = .6, sclera = "#e4d9d2", tint = null, tintAmount = .6, limbus = .35 } = {}) {
+    const eyes = this._eyesPart(); if (!eyes || !eyes.isSkinnedMesh || !eyes.material) return { ok: false, error: "no eyes" };
+    const g = eyes.geometry, P = g.attributes.position, UV = g.attributes.uv, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight, sk = eyes.skeleton;
+    if (!UV || !SI) return { ok: false, error: "eyes without uv or skin" };
+    // one eye per bone: the bone that carries most of each point
+    const by = new Map(), v = new THREE.Vector3();
+    for (let i = 0; i < P.count; i++) { let b = SI.getX(i), w = SW.getX(i); for (const [j, c] of [[SI.getY(i), SW.getY(i)], [SI.getZ(i), SW.getZ(i)], [SI.getW(i), SW.getW(i)]]) if (c > w) { b = j; w = c; }
+      (by.get(b) || by.set(b, []).get(b)).push(i); }
+    const E = [...by.entries()].filter(([, l]) => l.length > 8).slice(0, 2).map(([b, l]) => {
+      const bone = sk.bones[b], c = new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[b].clone().invert());   // the ball's centre: its bone (bind space)
+      const pts = l.map(i => v.fromBufferAttribute(P, i).applyMatrix4(eyes.bindMatrix).clone()), a = new THREE.Vector3();
+      let R = 0; for (const p of pts) { R += p.distanceTo(c); a.add(p.clone().sub(c)); } R /= pts.length; a.normalize();   // the cap's middle is where it looks
+      // the texture over the front of the ball, as a linear map of the two directions across the eye's axis
+      const e1 = new THREE.Vector3(0, 1, 0).cross(a).normalize(), e2 = a.clone().cross(e1), S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], Bu = [0, 0, 0], Bv = [0, 0, 0];
+      l.forEach((i, k) => { const d = pts[k].clone().sub(c); if (d.clone().addScaledVector(a, -d.dot(a)).length() > .7 * R) return;
+        const x = [1, d.dot(e1), d.dot(e2)], u = UV.getX(i), w = UV.getY(i); for (let r = 0; r < 3; r++) { Bu[r] += x[r] * u; Bv[r] += x[r] * w; for (let s = 0; s < 3; s++) S[r][s] += x[r] * x[s]; } });
+      const M3 = new THREE.Matrix3().set(...S[0], ...S[1], ...S[2]); if (Math.abs(M3.determinant()) < 1e-18) return null; M3.invert();
+      const su = new THREE.Vector3(...Bu).applyMatrix3(M3), sv = new THREE.Vector3(...Bv).applyMatrix3(M3);
+      const Ju = e1.clone().multiplyScalar(su.y).addScaledVector(e2, su.z), Jv = e1.clone().multiplyScalar(sv.y).addScaledVector(e2, sv.z);
+      const head = bone.parent && sk.bones.includes(bone.parent) ? sk.bones.indexOf(bone.parent) : b;
+      return { b, head, c, a, R, Ju, Jv };
+    }).filter(Boolean);
+    if (E.length !== 2) return { ok: false, error: "eyes not found" };
+    const M = eyes.material, V3 = () => new THREE.Vector3(), two = f => [f(), f()];
+    const U = M.userData.eyeU || (M.userData.eyeU = { uEC: { value: two(V3) }, uEA: { value: two(V3) }, uEJu: { value: two(V3) }, uEJv: { value: two(V3) }, uEP: { value: two(() => new THREE.Vector4()) },
+      uEUp: { value: V3() }, uERt: { value: V3() }, uEIor: { value: 1.336 }, uEPupil: { value: 1 }, uEOcc: { value: .6 }, uESclera: { value: new THREE.Color() }, uETint: { value: new THREE.Color() }, uETintA: { value: 0 }, uELimbus: { value: .35 } });
+    U.uEIor.value = ior; U.uEOcc.value = occlusion; U.uESclera.value.set(sclera); U.uETintA.value = tint ? tintAmount : 0; if (tint) U.uETint.value.set(tint); U.uELimbus.value = limbus;
+    this.pupil = this.pupil || 1; const fr = { iris, pupil, cornea };
+    // each frame: the balls' centres, axes and texture map in the camera's space (they turn with the eye bones), the
+    // head's up and right for the lid shadows
+    const Mv = new THREE.Matrix4(), Mh = new THREE.Matrix4(), N3 = new THREE.Matrix3(), self = this;
+    const place = (m, b, cam) => m.copy(cam.matrixWorldInverse).multiply(eyes.matrixWorld).multiply(eyes.bindMatrixInverse).multiply(sk.bones[b].matrixWorld).multiply(sk.boneInverses[b]);
+    const prevBR = eyes.userData.eyePrevBR !== undefined ? eyes.userData.eyePrevBR : (eyes.userData.eyePrevBR = eyes.onBeforeRender);
+    eyes.onBeforeRender = function (r, sc, cam, ...rest) {
+      prevBR && prevBR.call(this, r, sc, cam, ...rest);
+      E.forEach((e, k) => { place(Mv, e.b, cam); const s = new THREE.Vector3().setFromMatrixColumn(Mv, 0).length();
+        U.uEC.value[k].copy(e.c).applyMatrix4(Mv); U.uEA.value[k].copy(e.a).transformDirection(Mv);
+        N3.getNormalMatrix(Mv); U.uEJu.value[k].copy(e.Ju).applyMatrix3(N3); U.uEJv.value[k].copy(e.Jv).applyMatrix3(N3);
+        U.uEP.value[k].set(e.R * s, fr.iris * e.R * s, fr.pupil * e.R * s, fr.cornea * e.R * s);
+        if (k === 0) { place(Mh, e.head, cam); U.uEUp.value.set(0, 1, 0).transformDirection(Mh); U.uERt.value.set(1, 0, 0).transformDirection(Mh); } });
+      U.uEPupil.value = Math.max(.5, Math.min(1.6, self.pupil || 1));
+    };
+    if (!M.userData.eyeHooked) { M.userData.eyeHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey ? M.customProgramCacheKey.bind(M) : () => "";
+      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U);
+        const pre = `
+  // the eye: which ball, where in it, the ball's and the cornea's normals, the iris seen through the cornea
+  vec3 eP = -vViewPosition; int eK = distance(eP, uEC[0]) < distance(eP, uEC[1]) ? 0 : 1;
+  vec3 eC = uEC[eK], eA = uEA[eK]; vec4 eR = uEP[eK];                       // R, iris, pupil, cornea radius
+  vec3 eD = eP - eC; float eZ = dot(eD, eA); vec3 eQ = eD - eA * eZ; float eRr = length(eQ);
+  vec3 eNs = normalize(eD);
+  float eZI = sqrt(max(eR.x * eR.x - eR.y * eR.y, 0.)), eRq = min(eRr, eR.y);
+  vec3 eNcor = normalize(eQ + eA * sqrt(max(eR.w * eR.w - eRq * eRq, 0.)));   // the cornea: a smaller ball through the iris's rim
+  float eWC = 1. - smoothstep(eR.y * .9, eR.y * 1.03, eRr);
+  vec3 eNc = normalize(mix(eNs, eNcor, eWC));
+  vec3 eT = refract(normalize(eP), eNcor, 1. / uEIor);
+  vec3 eHit = eD + eT * (min(eZI - eZ, 0.) / min(dot(eT, eA), -.05));
+  vec3 eQh = eHit - eA * dot(eHit, eA); float eRh = length(eQh), eS = uEPupil, eRp = eR.z;
+  float eRs = eRh < eRp * eS ? eRh / eS : (eRh < eR.y ? eRp + (eRh - eRp * eS) * (eR.y - eRp) / max(eR.y - eRp * eS, 1e-6) : eRh);
+  vec3 eDP = (eQh * (eRs / max(eRh, 1e-7)) - eQ) * eWC;
+  vec2 eDuv = vec2(dot(uEJu[eK], eDP), dot(uEJv[eK], eDP)); float eL = length(eDuv); if (eL > .08) eDuv *= .08 / eL;
+  float eRsrc = length(eQ + eDP) / eR.y;                                     // where on the painted eye, in iris radii
+  float eYh = dot(eD, uEUp) / eR.x, eXh = abs(dot(eD, uERt)) / eR.x;
+  float eOcc = clamp(1. - uEOcc * (.75 * smoothstep(-.1, .5, eYh) + .3 * (1. - smoothstep(-.55, -.25, eYh)) + .55 * smoothstep(.35, .85, eXh)), .2, 1.);
+`;
+        sh.fragmentShader = `uniform vec3 uEC[2]; uniform vec3 uEA[2]; uniform vec3 uEJu[2]; uniform vec3 uEJv[2]; uniform vec4 uEP[2];
+uniform vec3 uEUp; uniform vec3 uERt; uniform float uEIor; uniform float uEPupil; uniform float uEOcc; uniform vec3 uESclera; uniform vec3 uETint; uniform float uETintA; uniform float uELimbus;\n`
+          + sh.fragmentShader
+            .replace("#include <map_fragment>", pre + THREE.ShaderChunk.map_fragment.replace("texture2D( map, vMapUv )", "texture2D( map, vMapUv + eDuv )") + `
+  { float eIr = 1. - smoothstep(.93, 1.0, eRsrc);                           // iris (and pupil) vs the white
+    float eLum = dot(diffuseColor.rgb, vec3(.3, .59, .11));
+    diffuseColor.rgb = mix(diffuseColor.rgb, uETint * eLum / max(dot(uETint, vec3(.3, .59, .11)), 1e-3), uETintA * eIr);
+    diffuseColor.rgb *= mix(uESclera, vec3(1.), eIr);
+    float eRg = eRr / eR.y; diffuseColor.rgb *= 1. - uELimbus * smoothstep(.84, .98, eRg) * (1. - smoothstep(.98, 1.08, eRg)); }   // the ring stays thin on the ball`)
+            .replace("#include <clearcoat_normal_fragment_begin>", "#include <clearcoat_normal_fragment_begin>\n  normal = normalize(mix(eNs, eA, eWC * .7));\n#ifdef USE_CLEARCOAT\n  clearcoatNormal = eNc;\n#endif")
+            .replace("#include <aomap_fragment>", `#include <aomap_fragment>
+  reflectedLight.directDiffuse *= eOcc; reflectedLight.indirectDiffuse *= eOcc; reflectedLight.directSpecular *= eOcc; reflectedLight.indirectSpecular *= eOcc;
+#ifdef USE_CLEARCOAT
+  clearcoatSpecularDirect *= eOcc; clearcoatSpecularIndirect *= mix(.35, 1., eOcc);
+#endif`);
+      };
+      M.customProgramCacheKey = () => "eyes|" + prevKey(); }
+    // wet: a clear, sharp coat over a softer ball
+    M.clearcoat = 1; M.clearcoatRoughness = .08; M.roughness = .4; M.specularIntensity = .3; M.needsUpdate = true;
+    return { ok: true, eyes: E.length, radius: +E[0].R.toFixed(4) };
   }
   // brows the colour of the hair (the model's are near-black strips, which reads as drawn on), a little darker, and
   // soft-edged
@@ -1301,11 +1443,55 @@ export class HumanBody extends EventTarget {
       for (const q of P) { const k = key(q), b = bins.get(k) || { y: 0, z: 0, n: 0 }; b.y += q.y; b.z += q.z; b.n++; bins.set(k, b); }
       for (let i = 0; i < p.count; i++) { const q = P[i], b = bins.get(key(q)), my = b.y / b.n; q.y = my + (q.y - my) * .7 + .0015; q.applyMatrix4(inv); p.setXYZ(i, q.x, q.y, q.z); }
       p.needsUpdate = true; brow.geometry.computeBoundingSphere();
+      try { this.browFollow = this._browFollow(brow); } catch (e) { console.warn("brow follow off:", e); }
     }
+    // blended, not cut by alpha: the texture's hairs and soft edge stay (cut, the brow read as a solid painted strip);
+    // the alpha with more contrast (the faint fringe read as grey fog over the skin; the hairs stay dense), and faded toward
+    // the nose, unevenly with the hairs, so the inner end is not a straight edge
+    // (inner end: the brow at x > 0 uses the upper texture brow, its inner end at small u; the other one at large u)
+    brow.userData.blend = true; brow.renderOrder = 3;
     const M = brow.material, U = M.userData.browU || (M.userData.browU = { uBrow: { value: col } }); U.uBrow.value = col;
-    if (!M.userData.browHooked) { M.userData.browHooked = true; const prev = M.onBeforeCompile;
-      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U); sh.fragmentShader = "uniform vec3 uBrow;\n" + sh.fragmentShader.replace("#include <map_fragment>", "#include <map_fragment>\n diffuseColor.rgb = mix(uBrow, diffuseColor.rgb, .08);"); };
-      M.alphaToCoverage = true; M.needsUpdate = true; }
+    if (!M.userData.browHooked) { M.userData.browHooked = true; const prev = M.onBeforeCompile, prevKey = M.customProgramCacheKey;
+      M.onBeforeCompile = (sh, r) => { prev && prev.call(M, sh, r); Object.assign(sh.uniforms, U); sh.fragmentShader = "uniform vec3 uBrow;\n" + sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
+ diffuseColor.rgb = mix(uBrow, diffuseColor.rgb, .08);
+ #ifdef USE_MAP
+  float bIn = vMapUv.y < .54 ? vMapUv.x : 1. - vMapUv.x;
+  diffuseColor.a = smoothstep(.06, .5, diffuseColor.a) * smoothstep(.03, .2, bIn + .05 * (diffuseColor.a - .5));
+ #endif`); };
+      M.customProgramCacheKey = () => "browlook|" + (prevKey ? prevKey.call(M) : "");
+      M.alphaToCoverage = false; M.alphaTest = .02; M.transparent = true; M.depthWrite = false; M.needsUpdate = true; }
+  }
+  // the brows ride on the skin: each brow point takes the face shapes' movement of the skin under it (the model's own brow
+  // shapes move up to 1.7 mm less than the skin, so in a frown the skin came through the brow), and sits at least .4 mm
+  // over the skin (bind space; inverse-distance weights over the 6 nearest skin points)
+  _browFollow(brow) {
+    const body = this.parts.get("Body"), DB = body && body.morphTargetDictionary, D = brow.morphTargetDictionary;
+    if (!DB || !D || !body.geometry.morphAttributes.position) return null;
+    const g = brow.geometry, p = g.attributes.position, bp = body.geometry.attributes.position, SN = this._skinNormals(), v = new THREE.Vector3();
+    const Q = [], lo = new THREE.Vector3(1e9, 1e9, 1e9), hi = new THREE.Vector3(-1e9, -1e9, -1e9);
+    for (let i = 0; i < p.count; i++) { const q = v.fromBufferAttribute(p, i).applyMatrix4(brow.bindMatrix).clone(); Q.push(q); lo.min(q); hi.max(q); }
+    lo.subScalar(.015); hi.addScalar(.015);
+    const C = [], CP = []; for (let j = 0; j < bp.count; j++) { v.fromBufferAttribute(bp, j).applyMatrix4(body.bindMatrix);
+      if (v.x > lo.x && v.x < hi.x && v.y > lo.y && v.y < hi.y && v.z > lo.z && v.z < hi.z) { C.push(j); CP.push(v.clone()); } }
+    if (!C.length) return null;
+    const K = 6, NB = Q.map(q => { const d = CP.map((c, k) => [q.distanceToSquared(c), k]).sort((a, b) => a[0] - b[0]).slice(0, K);
+      const w = d.map(([e]) => 1 / (e + 1e-10)), s = w.reduce((a, b) => a + b, 0); return d.map(([, k], n) => [C[k], w[n] / s]); });
+    // sit over the skin
+    const lift = .0004, toB = brow.bindMatrixInverse, n = new THREE.Vector3(), sp = new THREE.Vector3(); let lifted = 0, hMin = 1;
+    Q.forEach((q, i) => { sp.set(0, 0, 0); n.set(0, 0, 0);
+      for (const [j, w] of NB[i]) { sp.addScaledVector(v.fromBufferAttribute(bp, j).applyMatrix4(body.bindMatrix), w); n.x += SN[j * 3] * w; n.y += SN[j * 3 + 1] * w; n.z += SN[j * 3 + 2] * w; }
+      n.normalize(); const h = q.clone().sub(sp).dot(n); hMin = Math.min(hMin, h);
+      if (h < lift) { q.addScaledVector(n, lift - h); lifted++; const r = q.clone().applyMatrix4(toB); p.setXYZ(i, r.x, r.y, r.z); } });
+    if (lifted) { p.needsUpdate = true; g.computeBoundingSphere(); }
+    // the face shapes: the skin's movement under each brow point
+    const fromS = new THREE.Matrix3().setFromMatrix4(body.bindMatrix), toL = new THREE.Matrix3().setFromMatrix4(toB), BM = body.geometry.morphAttributes.position, d = new THREE.Vector3();
+    let moved = 0, err = 0;
+    for (const [name, ib] of Object.entries(D)) { const is = DB[name]; if (is == null || !BM[is] || !g.morphAttributes.position[ib]) continue;
+      const A = g.morphAttributes.position[ib], S = BM[is];
+      for (let i = 0; i < p.count; i++) { d.set(0, 0, 0); for (const [j, w] of NB[i]) { d.x += S.getX(j) * w; d.y += S.getY(j) * w; d.z += S.getZ(j) * w; }
+        d.applyMatrix3(fromS).applyMatrix3(toL); err = Math.max(err, Math.hypot(d.x - A.getX(i), d.y - A.getY(i), d.z - A.getZ(i))); A.setXYZ(i, d.x, d.y, d.z); }
+      A.needsUpdate = true; moved++; }
+    return { shapes: moved, lifted, hMin: +(hMin * 1000).toFixed(2), fixedMax: +(err * 1000).toFixed(2) };
   }
   _skinNormals() {
     if (this._sN) return this._sN; const body = this.parts.get("Body"), sn = body.geometry.attributes.normal, NB = new THREE.Matrix3().getNormalMatrix(body.bindMatrix), v = new THREE.Vector3();
@@ -1448,10 +1634,27 @@ export class HumanBody extends EventTarget {
     this.worn[slot] = { id: ex.item || url, meshes, mask: sockMasks ? sockMasks.full : this._maskFrom(ex.hides), sockMasks, cut: ex.cut && !meshes.some(m => m.material && m.material.transparent) ? this._maskFrom(ex.cut) : null,   // (see-through parts, tights: the skin under them stays) channel: slot === "shoes" ? 1 : 0, title: ex.title,
       socks: !(slot === "shoes" && !socks && ex.sock), sock: ex.sock, sockTint };
     this._updateSkinMask(); this._updateSocks(); this.setShape({}); this.applyLayers(); if (slot === "hair") this._browTint();
+    // hair lit along its strands (hair-look.js); opt.hairLook === false: as the item comes, or an object of its settings
+    if (slot === "hair" && this.opt.hairLook !== false) for (const m of meshes) if (m.material && m.material.map) try { const r = hairLook(m, { combed: () => this._hairBack(), ...(this.opt.hairLook || {}) }); if (!r.ok) console.warn("hair look off:", r.error); } catch (e) { console.warn("hair look off:", e); }
     // whatever of a hairstyle hangs free swings on a spring chain (hair-spring.js); opt.hairPhysics === false: rigid
     if (slot === "hair" && this.opt.hairPhysics !== false) { const m = meshes.find(o => o.isSkinnedMesh); if (m) try { this.root.updateMatrixWorld(true); const hs = hairSpring(this, m, this.opt.hair || {}); if (hs.ok) { hs.slot = "hair"; this.springs = (this.springs || []).filter(x => x.slot !== "hair"); this.springs.push(hs); } } catch (e) { console.warn("hair spring off:", e); } }
+    // the hanging part and the scalp redrawn as strands (hair-strands.js), along the chain above; opt.hairStrands: true or its settings
+    if (slot === "hair" && this.opt.hairStrands) { const m = meshes.find(o => o.isSkinnedMesh), hs = (this.springs || []).find(x => x.slot === "hair");
+      if (m && hs) try { const r = hairStrands(this, m, hs, this.opt.hairStrands === true ? {} : this.opt.hairStrands);
+        if (r.ok) { for (const x of [r.mesh, r.tie]) if (x) { x.userData.part = x.name; x.userData.layerName = "hair"; this.layerMeshes.hair.push(x); this.worn.hair.meshes.push(x); } this.strands = r.stats; this.applyLayers(); }
+        else console.warn("hair strands off:", r.error); } catch (e) { console.warn("hair strands off:", e); } }
     this.dispatchEvent(new CustomEvent("wardrobe", { detail: this.wardrobe() }));
     return { ok: true, slot, id: ex.item || url, title: ex.title };
+  }
+  // the hair's strands (hair-strands.js) off, the model's own tail cards and shell back (a cheaper frame), or on again
+  setStrands(on) {
+    const W = this.worn && this.worn.hair, m = W && W.meshes.find(x => x.userData.strandsIndex1), S = W ? W.meshes.filter(x => /_(strands|tie)$/.test(x.name)) : [];
+    if (!m || !S.length) return false; on = !!on; if (m.userData.strandsOn === on) return on; m.userData.strandsOn = on;
+    for (const x of S) x.userData.hidden = !on;
+    m.geometry.setIndex(on ? m.userData.strandsIndex1 : m.userData.strandsIndex0);
+    const HU = m.material.userData.hairU, [cut, flat] = m.userData.strandsShell || [];
+    if (HU) { if (cut != null && m.userData.strandsCut0 != null) HU.uHEdge.value.y = on ? cut : m.userData.strandsCut0; if (HU.uHFlat) HU.uHFlat.value = on ? flat || 0 : 0; }
+    this.applyLayers(); return on;
   }
   // take off a slot; with nothing left for "outfit" the base sports suit goes back on (the character is always dressed)
   takeOff(slot, { keepBase = false } = {}) {

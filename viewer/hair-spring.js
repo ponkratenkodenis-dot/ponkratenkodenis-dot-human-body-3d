@@ -136,6 +136,7 @@ export function hairSpring(body, mesh, { segments = 4, skull = .098, raise = 0 }
   const S = new ChainSpring(body, mesh, { parent: "head", joints: J, name: "hair", stiff: [0, .08, .02, .01, .01, .01],
     weight: (i, p, s) => sstep(.2, .6, s) * sstep(R + .02, R + .05, dist[i]) * Math.max(sstep(c.z + .01, c.z - .04, p.z), sstep(c.y - .03, c.y - .09, p.y)),   // (the hair on the scalp stays on the head)
     colliders: [{ bone: "head", c, r: R + .012 }, ...(sp0 ? [{ bone: "spine01", c: sp0.clone().add(new THREE.Vector3(0, .05, -.02)), r: .1 }, { bone: "spine01", c: sp0.clone().add(new THREE.Vector3(0, .15, -.02)), r: .07 }] : [])] });
+  S.joints = J; S.free = free; S.skull = { c, r: R };   // (for hair-strands.js: the strands of the tail are laid along this chain)
   if (S.ok) console.info("hair spring:", free.length, "points hang free,", segments, "segments, length", len.toFixed(3));
   return S;
 }
