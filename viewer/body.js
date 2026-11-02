@@ -12,6 +12,8 @@ import { skinMaps, skinLook as skinLookShader, wrinkleDriver } from "./skin-look
 import { skyEnvironment, bakeAO, aoShader, ensureAO } from "./light-look.js";
 import { mouthLook } from "./mouth-look.js";
 import { lidLashes } from "./lid-lashes.js";
+import { Ragdoll } from "./ragdoll.js";
+import { groundContact } from "./ground-contact.js";
 import { ruName, VERTEBRAE } from "./names-ru.js";
 import { MuscleDrive } from "./muscle-drive.js";
 import { setLinearSkinning } from "./dq-skinning.js";
@@ -794,11 +796,21 @@ export class HumanBody extends EventTarget {
     this._q2.copy(B.userData.pri).multiply(this._q).multiply(B.userData.pr);       // body-axis rotation expressed in the bone's parent frame
     B.quaternion.premultiply(this._q2);
   }
+  // breathing that follows effort. exert (0..1) rises with how fast the pelvis moves (a dive, a run: about a third
+  // for a dive) or as a page sets it, and falls away over ~10 s; the rate goes from 15 to 40 a minute and the depth to
+  // 2.5 times, the phase carried on so the rhythm never jumps; hard breathing parts the lips on each breath in
+  _breathe(dt) {
+    const B = this._br || (this._br = { ph: 0, depth: 1, rate: 15, last: null, v: 0 }); if (!(dt > 0)) return;
+    const h = this.bones.root; if (h) { const p = h.getWorldPosition(new THREE.Vector3()); if (B.last) { const sp = p.distanceTo(B.last) / dt; if (sp < 10) B.v += (sp - B.v) * Math.min(1, dt * 8); } B.last = p; }
+    this.exert = Math.min(1, (this.exert || 0) + dt * .35 * Math.min(1, B.v / 3)) * Math.exp(-dt / 10);
+    const e = this.exert, rate = 15 + 25 * e, depth = 1 + 1.5 * e;
+    B.rate += (rate - B.rate) * Math.min(1, dt * 1.5); B.depth += (depth - B.depth) * Math.min(1, dt * 1.5); B.ph = (B.ph + dt * B.rate / 60 * 2 * Math.PI) % (2 * Math.PI);
+  }
   _applyPose(plant = true) {
     const P = this.pose; this._e = this._e || new THREE.Euler(); this._q = this._q || new THREE.Quaternion(); this._q2 = this._q2 || new THREE.Quaternion();
     for (const k in this.bones) { const B = this.bones[k]; if (B.userData.rest) B.quaternion.copy(B.userData.rest); if (B.userData.restPos && k !== "root") B.position.copy(B.userData.restPos); }
     this._e.set(P.bodyPitch * D2R, 0, P.bodyRoll * D2R, "XYZ"); this.root.quaternion.setFromEuler(this._e);
-    const br = P.breath * (this.live ? Math.sin(this.t * 1.6) : 0);
+    const br = P.breath * (this.live ? (this._br ? this._br.depth * Math.sin(this._br.ph) : Math.sin(this.t * 1.6)) : 0);
     // trunk: hip hinge at the pelvis, then the spine segment by segment, then the neck
     this._rot("root", P.hipFlex, 0, 0);
     for (const s of SPINE) this._rot(s, P.spineFlex * SHARE.flex[s] - (s === "spine01" ? br * .9 : 0), P.spineTwist * SHARE.twist[s], P.spineSide * SHARE.side[s]);
@@ -913,7 +925,8 @@ export class HumanBody extends EventTarget {
     }
     if (AK) {                                                                         // a character with an ARKit face: its own shapes
       const set = (n, w) => { for (const [m, i] of AK[n] || []) m.morphTargetInfluences[i] = THREE.MathUtils.clamp(w, 0, 1); };
-      const W = { jawOpen: (P.jawOpen + tk * 11) / 17, mouthFunnel: round * .55, mouthPucker: round * .45, browInnerUp: bu, browOuterUpLeft: bu * .8, browOuterUpRight: bu * .8,
+      const pant = this._br && this.live ? Math.max(0, (this.exert || 0) - .25) * 6 * Math.max(0, Math.sin(this._br.ph)) : 0;   // (out of breath: the mouth opens on each breath in)
+      const W = { jawOpen: (P.jawOpen + tk * 11 + pant) / 17, mouthFunnel: round * .55, mouthPucker: round * .45, browInnerUp: bu, browOuterUpLeft: bu * .8, browOuterUpRight: bu * .8,
         browDownLeft: bd, browDownRight: bd, mouthFrownLeft: dn, mouthFrownRight: dn, mouthSmileLeft: up * .9, mouthSmileRight: up * .85, cheekSquintLeft: up * .5, cheekSquintRight: up * .45, mouthUpperUpLeft: up * .3, mouthUpperUpRight: up * .3,
         eyeSquintLeft: up * .2, eyeSquintRight: up * .2 };
       for (const [S, side] of [["L", "Left"], ["R", "Right"]]) W["eyeBlink" + side] = Math.max(0, Math.min(1, P["blink" + S] + auto - (this.eyeOpen || 0)));
@@ -939,6 +952,7 @@ export class HumanBody extends EventTarget {
   frame() {
     const raw = Math.min(.25, this.clock.getDelta()), dt = Math.min(.05, raw); this.t += raw;   // motion keeps real time on slow devices
     if (this.root) {
+      this._breathe(raw);
       this._motion(raw);
       const k = 1 - Math.exp(-dt * 5); for (const key of POSE_KEYS) this.pose[key] += (this.target[key] - this.pose[key]) * k;
       // between moves the body stands as a person does (an idle mocap loop), not in the model's rest pose; an exercise,
@@ -952,6 +966,7 @@ export class HumanBody extends EventTarget {
       const clip = !!this._clip; this._applyPose(!clip);
       if (clip) { if (this._clip) this._clipLayer(raw); this._plant(this.pose); }
       if (this.onPose) { this.root.updateMatrixWorld(true); this.onPose(raw); }   // a procedural layer over the pose (avatar-ik.js: hands on the table)
+      if (this.rag) { this.root.updateMatrixWorld(true); this.rag.update(raw); }       // the body under gravity (ragdoll.js), as hard as rag.follow lets it
       if (this.drive) { this.root.updateMatrixWorld(true); this.drive.update(dt); }
       if (this.jiggle) { if (!this.drive) this.root.updateMatrixWorld(true); this.jiggle.update(raw); }
       if (this.lashes) this.lashes.update();                                              // the lashes turned with the lids' edges
@@ -1327,6 +1342,23 @@ export class HumanBody extends EventTarget {
   mouthCavity(opt = {}) {
     if (this.mouth) { if (opt.amount != null) this.mouth.setAmount(opt.amount); return { ok: true, stats: this.mouth.stats }; }
     const r = mouthLook(this, opt); if (r.ok) this.mouth = r; return r.ok ? { ok: true, stats: r.stats } : r;
+  }
+  // flesh and cloth pressed flat on the ground where they would go under it (ground-contact.js): every mesh of the
+  // character (call again after dressing). ground: the plane's height (m, world); groundContactOff() lifts it.
+  // Returns { ok, materials }
+  groundContactOn(ground = 0) {
+    const U = this._groundU || (this._groundU = { uGround: { value: new THREE.Vector2(0, 1) } }); U.uGround.value.set(ground, 1);
+    const M = new Set(); this.root.traverse(o => { if (o.isMesh && o !== this.floor) for (const m of [].concat(o.material)) if (m) M.add(m); });
+    return { ok: true, materials: groundContact(M, U) };
+  }
+  groundContactOff() { if (this._groundU) this._groundU.uGround.value.y = 0; }
+  // the body under gravity (ragdoll.js): after the pose of each frame, a skeleton of points with the bones' lengths,
+  // the joints held to their animated angles by muscle tone, gravity and the ground. rag.follow (1: the animation,
+  // 0: free) and rag.tone say how much; a page sets them (letting go after a dive, say). opt: ground (m, world),
+  // gravity, tone, friction, drag, iters, step. Returns { ok, points } (or the bones it misses)
+  ragdollOn(opt = {}) {
+    if (this.rag) return { ok: true, points: this.rag.n };
+    const r = new Ragdoll(this, opt); if (!r.ok) return { ok: false, missing: r.miss }; this.rag = r; return { ok: true, points: r.n };
   }
   // lashes that go with the eyelids (lid-lashes.js): each frame every lash turns with its stretch of the lid's edge
   // about the eye's centre, so a closing eye's lashes hang down from the lid instead of being drawn out over it (the
